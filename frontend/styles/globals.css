@@ -1,0 +1,126 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap');
+
+html,
+body {
+  padding: 0;
+  margin: 0;
+  font-family: 'Inter', sans-serif;
+  /* dark cosmic gradient inspired by futuristic dashboards */
+  background: radial-gradient(circle at 30% 30%, #0d1023, #01030a);
+  color: #e3e3ed;
+  min-height: 100vh;
+}
+
+a {
+  color: #38bdf8;
+  text-decoration: none;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Futuristic card styling */
+/* glassy card container with purple tint */
+.card {
+  background: rgba(23, 16, 43, 0.75);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  border-radius: 1rem;
+  padding: 1.5rem;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(12px);
+  transition: transform 0.3s ease, border-color 0.3s ease;
+}
+.card:hover {
+  transform: translateY(-6px);
+  border-color: rgba(139, 92, 246, 0.6);
+}
+
+/* primary action button */
+.button {
+  background: linear-gradient(90deg, #8b5cf6 0%, #7c3aed 100%);
+  color: #fff;
+  padding: 0.75rem 1.75rem;
+  border-radius: 0.5rem;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 1rem;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.5);
+}
+
+/* secondary button style */
+.button-secondary {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c5b5f5;
+  padding: 0.75rem 1.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  cursor: pointer;
+  font-weight: 500;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.button-secondary:hover {
+  background: rgba(139, 92, 246, 0.25);
+  border-color: rgba(139, 92, 246, 0.5);
+}
+
+/* navigation bar */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: rgba(10, 10, 25, 0.8);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.2);
+}
+.nav .brand {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #d8d1f1;
+}
+.nav a {
+  margin-left: 1.5rem;
+  color: #b3a5e7;
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s ease;
+}
+.nav a:hover {
+  color: #ffffff;
+}
+
+/* hero section */
+.hero {
+  text-align: center;
+  padding: 5rem 2rem 3rem;
+  max-width: 900px;
+  margin: 0 auto;
+}
+.hero h1 {
+  font-size: 3rem;
+  line-height: 1.2;
+  color: #f5f5fa;
+  margin-bottom: 1rem;
+}
+.hero p {
+  font-size: 1.25rem;
+  color: #c7c1e0;
+  max-width: 600px;
+  margin: 0 auto 2rem;
+}
+.hero-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
