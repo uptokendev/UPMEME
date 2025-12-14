@@ -1,42 +1,35 @@
 {
   "name": "launchit",
   "version": "1.0.0",
-  "type": "module",
+  "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "hardhat test"
+    "clean": "hardhat clean",
+    "build": "hardhat compile",
+    "test": "hardhat test",
+    "frontend": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/uptokendev/LaunchIt.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
-  "Dependencies": {
-    "@openzeppelin/contracts": "^4.9.3",
-    "ethers": "^6.15.0",
-    "hardhat": "^2.17.0",
-    "chai": "^6.2.1",
-    "dotenv": "^17.2.3",
-    "mocha": "^11.7.5"
+  "bugs": {
+    "url": "https://github.com/uptokendev/LaunchIt/issues"
+  },
+  "homepage": "https://github.com/uptokendev/LaunchIt#readme",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^6.1.0",
+    "@types/node": "^24.10.1",
+    "hardhat": "^2.26.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@openzeppelin/contracts": "^5.4.0",
-    "dotenv": "^17.2.3",
-    "hardhat": "^3.0.15"
-  },
-  "devDependencies": {
-    "@nomicfoundation/hardhat-ethers": "^4.0.3",
-    "@nomicfoundation/hardhat-ethers-chai-matchers": "^3.0.2",
-    "@nomicfoundation/hardhat-ignition": "^3.0.5",
-    "@nomicfoundation/hardhat-ignition-ethers": "^3.0.5",
-    "@nomicfoundation/hardhat-keystore": "^3.0.3",
-    "@nomicfoundation/hardhat-mocha": "^3.0.7",
-    "@nomicfoundation/hardhat-network-helpers": "^3.0.3",
-    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "^3.0.1",
-    "@nomicfoundation/hardhat-typechain": "^3.0.1",
-    "@nomicfoundation/hardhat-verify": "^3.0.7",
-    "chai": "^6.2.1",
-    "mocha": "^11.7.5",
-    "tsx": "^4.20.6",
-    "vitest": "^4.0.10"
+    "dotenv": "^17.2.3"
   }
 }
