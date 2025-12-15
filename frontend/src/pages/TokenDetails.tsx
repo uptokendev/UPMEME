@@ -19,6 +19,8 @@ import { useDexScreenerChart } from "@/hooks/useDexScreenerChart";
 import { CurvePriceChart } from "@/components/token/CurvePriceChart";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
 import { getMockCurveEventsForSymbol } from "@/constants/mockCurveTrades";
+import { getMockDexTradesForSymbol } from "@/constants/mockDexTrades";
+import { getMockDexLiquidityBnbForSymbol } from "@/constants/mockDexTrades";
 import { useWallet } from "@/hooks/useWallet";
 import { useCurveTrades } from "@/hooks/useCurveTrades";
 import { ethers } from "ethers";
@@ -125,6 +127,119 @@ const TokenDetails = () => {
     }
   };
 
+  const formatPriceBnb = (p?: number | null): string => {
+    if (p == null || !Number.isFinite(p)) return "—";
+    const pretty =
+      p >= 1 ? p.toFixed(2) : p >= 0.01 ? p.toFixed(6) : p.toFixed(8);
+    return `${pretty} BNB`;
+  };
+
+  // Format a BNB amount (number) consistently across the UI.
+  const formatBnb = (n?: number | null): string => {
+    if (n == null || !Number.isFinite(n)) return "—";
+    const pretty = n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
+    return `${pretty} BNB`;
+  };
+
+  // Read curve trades for transactions + analytics (live mode)
+  const { points: liveCurvePoints } = useCurveTrades(campaign?.campaign);
+
+  type TimeframeKey = "5m" | "1h" | "4h" | "24h";
+  const timeframeTiles = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const windows: Record<TimeframeKey, number> = {
+      "5m": 5 * 60,
+      "1h": 60 * 60,
+      "4h": 4 * 60 * 60,
+      "24h": 24 * 60 * 60,
+    };
+
+    // End price: prefer current on-chain price, otherwise use latest trade price
+    const endPrice = metrics?.currentPrice
+      ? Number(ethers.formatUnits(metrics.currentPrice, 18))
+      : undefined;
+
+    // Normalize mock timestamps so they sit “around now” for realistic windows.
+    const mockCurve = getMockCurveEventsForSymbol(campaign?.symbol);
+    const mockCurvePoints = (() => {
+      if (!mockCurve.length) return [] as Array<{ timestamp: number; pricePerToken: number; nativeWei?: bigint }>;
+      const lastTs = mockCurve[mockCurve.length - 1].timestamp;
+      const shift = now - lastTs;
+      const perTrade = 50_000_000_000_000_000n; // 0.05 BNB per point (demo)
+      return mockCurve.map((e) => ({
+        timestamp: e.timestamp + shift,
+        pricePerToken: e.pricePerToken,
+        nativeWei: perTrade,
+      }));
+    })();
+
+    // Mock DEX trades for tokens that are already graduated
+    const mockDex = getMockDexTradesForSymbol(campaign?.symbol);
+    const mockDexPoints = (() => {
+      if (!mockDex.length) return [] as Array<{ timestamp: number; pricePerToken: number; nativeWei?: bigint }>;
+      const lastTs = mockDex[mockDex.length - 1].timestamp;
+      const shift = now - lastTs;
+      return mockDex.map((t) => ({
+        timestamp: t.timestamp + shift,
+        pricePerToken: t.pricePerToken,
+        nativeWei: t.nativeWei,
+      }));
+    })();
+
+    const isCurveTest = (campaign?.symbol ?? "").toUpperCase() === "MOCK2";
+    const mockGraduated =
+      !isCurveTest &&
+      Boolean(metrics && metrics.graduationTarget > 0n && metrics.sold >= metrics.graduationTarget);
+
+    const points: Array<{ timestamp: number; pricePerToken: number; nativeWei?: bigint }> =
+      USE_MOCK_DATA ? (mockGraduated ? mockDexPoints : mockCurvePoints) : (liveCurvePoints as any);
+
+    if (!points.length && endPrice == null) {
+      return {
+        "5m": { change: null as number | null, volume: "—" },
+        "1h": { change: null as number | null, volume: "—" },
+        "4h": { change: null as number | null, volume: "—" },
+        "24h": { change: null as number | null, volume: "—" },
+      };
+    }
+
+    const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
+    const latestTradePrice = sorted[sorted.length - 1]?.pricePerToken;
+    const end = endPrice ?? latestTradePrice ?? 0;
+
+    const out: Record<TimeframeKey, { change: number | null; volume: string }> = {
+      "5m": { change: null, volume: "—" },
+      "1h": { change: null, volume: "—" },
+      "4h": { change: null, volume: "—" },
+      "24h": { change: null, volume: "—" },
+    };
+
+    for (const k of Object.keys(windows) as TimeframeKey[]) {
+      const startTs = now - windows[k];
+
+      // Start price: last trade at/before the window start, else first trade in the window.
+      const before = [...sorted].reverse().find((p) => p.timestamp <= startTs);
+      const within = sorted.find((p) => p.timestamp >= startTs);
+      const startPrice = (before ?? within)?.pricePerToken;
+
+      const volumeWei = sorted
+        .filter((p) => p.timestamp >= startTs)
+        .reduce((acc, p) => acc + (p.nativeWei ?? 0n), 0n);
+
+      const start = startPrice ?? end;
+      if (start > 0 && end > 0) {
+        const pct = ((end - start) / start) * 100;
+        out[k].change = Number.isFinite(pct) ? Number(pct.toFixed(2)) : null;
+      } else {
+        out[k].change = null;
+      }
+
+      out[k].volume = points.length ? formatBnbFromWei(volumeWei) : "—";
+    }
+
+    return out;
+  }, [USE_MOCK_DATA, campaign?.symbol, liveCurvePoints, metrics]);
+
   // Token view-model used throughout the page (mock + live)
   const tokenData = useMemo(() => {
     const ticker = campaign?.symbol ?? (id ? id.toUpperCase() : "");
@@ -146,18 +261,10 @@ const TokenDetails = () => {
       price: formatPriceFromWei(metrics?.currentPrice ?? null),
       liquidity: formatBnbFromWei(curveReserveWei),
 
-      // Timeframe tiles (best-effort; until we have proper analytics)
-      metrics: {
-        "5m": { change: 0, volume: 0 },
-        "1h": { change: 0, volume: 0 },
-        "4h": { change: 0, volume: 0 },
-        "24h": { change: 0, volume: 0 },
-      },
+      // Timeframe analytics (BNB volume + price change)
+      metrics: timeframeTiles,
     };
-  }, [campaign, curveReserveWei, id, metrics, summary]);
-
-  // Read curve trades for the transactions table (live mode)
-  const { points: liveCurvePoints } = useCurveTrades(campaign?.campaign);
+  }, [campaign, curveReserveWei, id, metrics, summary, timeframeTiles]);
 
   const shorten = (addr?: string): string => {
     if (!addr) return "—";
@@ -186,6 +293,13 @@ const TokenDetails = () => {
     if (days < 7) return `${days}d`;
     const weeks = Math.floor(days / 7);
     return `${weeks}w`;
+  };
+
+  const formatChange = (ch: number | null): string => {
+    if (ch == null || !Number.isFinite(ch)) return "—";
+    const abs = Math.abs(ch);
+    const dir = ch >= 0 ? "▲" : "▼";
+    return `${dir} ${abs.toFixed(2)}%`;
   };
 
   // Reserve / "liquidity" shown on the page: BNB held by the campaign contract (pre-graduation)
@@ -224,7 +338,131 @@ const TokenDetails = () => {
     }
 
     if (USE_MOCK_DATA) {
-      setTxs([]);
+      const sym = campaign?.symbol ?? "";
+      const isCurveTest = sym.toUpperCase() === "MOCK2";
+      const graduated =
+        !isCurveTest &&
+        Boolean(
+          metrics &&
+            metrics.graduationTarget > 0n &&
+            metrics.sold >= metrics.graduationTarget
+        );
+
+      const nowTs = Math.floor(Date.now() / 1000);
+      const addrs = [
+        "0x3f2a0bD1B17B2D2b8b1B2b9E3c2f58b9c2aE1111",
+        "0x9f1bA1dE2c3D4e5F6a7B8c9D0e1F2a3B4c5D2222",
+        "0x1111222233334444555566667777888899990000",
+        "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa",
+      ];
+
+      const pseudoTx = (prefix: string, i: number) => {
+        let h = 2166136261;
+        const s = `${prefix}-${i}`;
+        for (let k = 0; k < s.length; k++) {
+          h ^= s.charCodeAt(k);
+          h = Math.imul(h, 16777619);
+        }
+        const base = (h >>> 0).toString(16).padStart(8, "0");
+        return (`0x${base.repeat(8)}`).slice(0, 66);
+      };
+
+      const mcap = summary?.stats.marketCap ?? "—";
+
+      if (graduated) {
+        const dex = getMockDexTradesForSymbol(sym);
+        if (!dex.length) {
+          setTxs([]);
+          return;
+        }
+
+        const lastTs = dex[dex.length - 1].timestamp;
+        const shift = nowTs - lastTs;
+
+        const next: Transaction[] = [...dex]
+          .map((t, i) => ({
+            timestamp: t.timestamp + shift,
+            side: t.side,
+            tokensWei: t.tokensWei,
+            nativeWei: t.nativeWei,
+            pricePerToken: t.pricePerToken,
+            trader: t.trader || addrs[i % addrs.length],
+            txHash: t.txHash || pseudoTx(`dex-${sym}`, i),
+          }))
+          .slice(-50)
+          .reverse()
+          .map((p) => {
+            const tokenAmount = Number(ethers.formatUnits(p.tokensWei, 18));
+            const bnb = Number(ethers.formatEther(p.nativeWei));
+            const bnbStr = Number.isFinite(bnb) ? `${bnb.toFixed(4)} BNB` : "—";
+            const priceStr = formatPriceBnb(p.pricePerToken);
+            return {
+              time: formatAgo(p.timestamp),
+              type: p.side,
+              amount: formatCompact(tokenAmount),
+              bnb: bnbStr,
+              price: priceStr,
+              mcap,
+              trader: shorten(p.trader),
+              tx: p.txHash,
+            };
+          });
+
+        setTxs(next);
+        return;
+      }
+
+      // Pre-LP: derive mock curve transactions from mock curve events
+      const curve = getMockCurveEventsForSymbol(sym);
+      if (!curve.length) {
+        setTxs([]);
+        return;
+      }
+
+      const lastTs = curve[curve.length - 1].timestamp;
+      const shift = nowTs - lastTs;
+
+      const perTradeBnb = 0.05;
+      const perTradeWei = 50_000_000_000_000_000n; // 0.05 BNB
+
+      const next: Transaction[] = [...curve]
+        .map((e, i) => {
+          const ts = e.timestamp + shift;
+          const side: "buy" | "sell" = i % 4 === 0 ? "sell" : "buy";
+          const tokens = e.pricePerToken > 0 ? perTradeBnb / e.pricePerToken : 0;
+          const tokensWei = BigInt(Math.floor(tokens * 1e18));
+          const trader = addrs[i % addrs.length];
+          const txHash = pseudoTx(`curve-${sym}`, i);
+          return {
+            timestamp: ts,
+            side,
+            tokensWei,
+            nativeWei: perTradeWei,
+            pricePerToken: e.pricePerToken,
+            trader,
+            txHash,
+          };
+        })
+        .slice(-50)
+        .reverse()
+        .map((p) => {
+          const tokenAmount = Number(ethers.formatUnits(p.tokensWei, 18));
+          const bnb = Number(ethers.formatEther(p.nativeWei));
+          const bnbStr = Number.isFinite(bnb) ? `${bnb.toFixed(4)} BNB` : "—";
+          const priceStr = formatPriceBnb(p.pricePerToken);
+          return {
+            time: formatAgo(p.timestamp),
+            type: p.side,
+            amount: formatCompact(tokenAmount),
+            bnb: bnbStr,
+            price: priceStr,
+            mcap,
+            trader: shorten(p.trader),
+            tx: p.txHash,
+          };
+        });
+
+      setTxs(next);
       return;
     }
 
@@ -235,12 +473,15 @@ const TokenDetails = () => {
         const tokenAmount = Number(ethers.formatUnits(p.tokensWei, 18));
         const bnb = Number(ethers.formatEther(p.nativeWei));
 
+        const bnbStr = Number.isFinite(bnb) ? `${bnb.toFixed(4)} BNB` : "—";
+        const priceStr = formatPriceBnb(p.pricePerToken);
+
         return {
           time: formatAgo(p.timestamp),
           type: p.side,
-          usd: Number.isFinite(bnb) ? Number(bnb.toFixed(4)) : 0,
           amount: formatCompact(tokenAmount),
-          sol: Number.isFinite(bnb) ? Number(bnb.toFixed(4)) : 0,
+          bnb: bnbStr,
+          price: priceStr,
           mcap: summary?.stats.marketCap ?? "—",
           trader: shorten(p.trader),
           tx: p.txHash,
@@ -248,7 +489,7 @@ const TokenDetails = () => {
       });
 
     setTxs(next);
-  }, [USE_MOCK_DATA, campaign, liveCurvePoints, summary]);
+  }, [USE_MOCK_DATA, campaign, liveCurvePoints, summary, metrics]);
 
   // 🔹 Dexscreener chart-only URL (mock or live) based on the token contract
   // In mock mode we still want to be able to test the internal bonding-curve chart.
@@ -256,10 +497,36 @@ const TokenDetails = () => {
   const isCurveTestToken =
     (campaign?.symbol ?? tokenData.ticker ?? "").toUpperCase() === "MOCK2";
 
-  const dexTokenAddress = isCurveTestToken ? "" : campaign?.token ?? "";
+  // DexScreener gating: only show external DEX chart after graduation / finalize.
+  // Prefer explicit flags when available; fall back to sold >= graduationTarget for older deployments.
+  const hasLaunchFlag = (metrics as any)?.launched !== undefined || (metrics as any)?.finalizedAt !== undefined;
+  const isGraduated = hasLaunchFlag
+    ? Boolean((metrics as any)?.launched) || (typeof (metrics as any)?.finalizedAt === "bigint" ? (metrics as any).finalizedAt > 0n : Number((metrics as any)?.finalizedAt ?? 0) > 0)
+    : Boolean(metrics && metrics.graduationTarget > 0n && metrics.sold >= metrics.graduationTarget);
 
-  const { url: chartUrl } = useDexScreenerChart(dexTokenAddress);
-  const hasDexChart = !!chartUrl && !isCurveTestToken;
+  const dexTokenAddress = (!isCurveTestToken && isGraduated) ? (campaign?.token ?? "") : "";
+
+  const { url: chartUrl, baseUrl: dexBaseUrl, liquidityBnb: dexLiquidityBnb } =
+    useDexScreenerChart(dexTokenAddress);
+  const hasDexChart = !!chartUrl && !isCurveTestToken && isGraduated;
+  const isDexStage = !isCurveTestToken && isGraduated;
+
+  const liquidityLabel = isDexStage ? "Liquidity" : "Reserve";
+  const liquidityValue = (() => {
+    if (!isDexStage) return tokenData.liquidity;
+
+    // MOCK: use per-symbol mock liquidity to mimic a real DEX pool.
+    if (USE_MOCK_DATA) {
+      const liq = getMockDexLiquidityBnbForSymbol(campaign?.symbol);
+      return formatBnb(liq ?? null);
+    }
+
+    // LIVE: best-effort liquidity (BNB-equivalent) from DexScreener.
+    return formatBnb(dexLiquidityBnb ?? null);
+  })();
+
+  const chartTitle = isDexStage ? "DEX chart" : "Bonding curve";
+  const stagePill = isDexStage ? "Graduated" : "Bonding";
 
   const copyAddress = () => {
     const address = campaign?.token ?? "";
@@ -302,7 +569,7 @@ const TokenDetails = () => {
   }
 
   return (
-    <div className="w-full flex flex-col px-3 md:px-6 pt-3 md:pt-6 gap-3 md:gap-4">
+    <div className="h-full w-full overflow-hidden flex flex-col px-3 md:px-6 pt-3 md:pt-6 gap-3 md:gap-4">
       {/* Main Content - Single Row */}
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 md:gap-4 flex-1 min-h-0">
         {/* Left Column - Header, Chart & Transactions (3/4 width) */}
@@ -429,19 +696,24 @@ const TokenDetails = () => {
                               <span className="text-muted-foreground">
                                 {key}
                               </span>
-                              <span
-                                className={`ml-2 font-mono ${
-                                  (data as any).change < 0
-                                    ? "text-red-500"
-                                    : "text-green-500"
-                                }`}
-                              >
-                              {(data as any).change === 0
-                                ? "—"
-                                : `${(data as any).change > 0 ? "▲" : "▼"} ${Math.abs(
-                                    (data as any).change
-                                  )}%`}
-                              </span>
+                              {(() => {
+                                const ch = (data as any).change as number | null;
+                                return (
+                                  <span
+                                    className={`ml-2 font-mono ${
+                                      ch == null
+                                        ? "text-muted-foreground"
+                                        : ch < 0
+                                        ? "text-red-500"
+                                        : "text-green-500"
+                                    }`}
+                                  >
+                                    {ch == null
+                                      ? "—"
+                                      : `${ch > 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(2)}%`}
+                                  </span>
+                                );
+                              })()}
                             </div>
                           )
                         )}
@@ -459,10 +731,10 @@ const TokenDetails = () => {
                         </div>
                         <div className="text-xs">
                           <span className="text-muted-foreground block">
-                            Reserve
+                            {liquidityLabel}
                           </span>
                           <span className="font-mono text-foreground">
-                            {tokenData.liquidity}
+                            {liquidityValue}
                           </span>
                         </div>
                         <div className="text-xs">
@@ -509,19 +781,24 @@ const TokenDetails = () => {
                       }`}
                     >
                       <span className="text-muted-foreground">{key}</span>
-                      <span
-                        className={`ml-2 font-mono ${
-                          (data as any).change < 0
-                            ? "text-red-500"
-                            : "text-green-500"
-                        }`}
-                      >
-                        {(data as any).change === 0
-                          ? "—"
-                          : `${(data as any).change > 0 ? "▲" : "▼"} ${Math.abs(
-                              (data as any).change
-                            )}%`}
-                      </span>
+                      {(() => {
+                        const ch = (data as any).change as number | null;
+                        return (
+                          <span
+                            className={`ml-2 font-mono ${
+                              ch == null
+                                ? "text-muted-foreground"
+                                : ch < 0
+                                ? "text-red-500"
+                                : "text-green-500"
+                            }`}
+                          >
+                            {ch == null
+                              ? "—"
+                              : `${ch > 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(2)}%`}
+                          </span>
+                        );
+                      })()}
                     </div>
                   ))}
                 </div>
@@ -535,9 +812,9 @@ const TokenDetails = () => {
                     </span>
                   </div>
                   <div className="text-xs">
-                    <span className="text-muted-foreground">Reserve</span>
+                    <span className="text-muted-foreground">{liquidityLabel}</span>
                     <span className="ml-2 font-mono text-foreground">
-                      {tokenData.liquidity}
+                      {liquidityValue}
                     </span>
                   </div>
                   <div className="text-xs">
@@ -559,32 +836,61 @@ const TokenDetails = () => {
 
           {/* Chart */}
           <Card
-  className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-0 md:p-0 overflow-hidden"
-  style={{ flex: isMobile ? "3" : "2", minHeight: isMobile ? undefined : '480px' }}
->
-  {hasDexChart ? (
-    // 🔹 Post-LP: Dexscreener chart-only view
-    <iframe
-      src={chartUrl!}
-      title={`${tokenData.ticker} chart`}
-      className="w-full h-[480px] md:h-[480px] rounded-2xl border-0"
-      allow="clipboard-write; clipboard-read; encrypted-media;"
-    />
-  ) : (
-    // 🔹 Pre-LP: internal bonding-curve chart (live or mock)
-    <div className="w-full h-[480px] md:h-[480px]">
-      <CurvePriceChart
-        campaignAddress={campaign?.campaign}
-        mockMode={USE_MOCK_DATA}
-        mockEvents={
-          USE_MOCK_DATA
-            ? getMockCurveEventsForSymbol(campaign?.symbol)
-            : []
-        }
-      />
-    </div>
-  )}
-</Card>
+            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-0 overflow-hidden flex flex-col min-h-[320px]"
+            style={{ flex: isMobile ? "3" : "2" }}
+          >
+            <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-card/20">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-xs text-muted-foreground">{chartTitle}</span>
+                <span
+                  className={`text-[10px] px-2 py-0.5 rounded-full border ${
+                    isDexStage
+                      ? "bg-green-500/10 text-green-400 border-green-500/20"
+                      : "bg-accent/10 text-accent-foreground border-border/40"
+                  }`}
+                >
+                  {stagePill}
+                </span>
+              </div>
+
+              {isDexStage && dexBaseUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                  onClick={() =>
+                    window.open(dexBaseUrl, "_blank", "noopener,noreferrer")
+                  }
+                >
+                  <ExternalLink className="h-3 w-3 mr-1" />
+                  DexScreener
+                </Button>
+              )}
+            </div>
+
+            <div className="flex-1 min-h-0">
+              {isDexStage ? (
+                chartUrl ? (
+                  <iframe
+                    src={chartUrl}
+                    title={`${tokenData.ticker} chart`}
+                    className="w-full h-full min-h-[260px] border-0"
+                    allow="clipboard-write; clipboard-read; encrypted-media;"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full min-h-[260px] text-xs text-muted-foreground p-4">
+                    DexScreener data is not available yet.
+                  </div>
+                )
+              ) : (
+                <CurvePriceChart
+                  campaignAddress={campaign?.campaign}
+                  mockMode={USE_MOCK_DATA}
+                  mockEvents={USE_MOCK_DATA ? getMockCurveEventsForSymbol(campaign?.symbol) : []}
+                />
+              )}
+            </div>
+          </Card>
 
           {/* Transactions Table */}
           <Card
@@ -592,31 +898,31 @@ const TokenDetails = () => {
             style={{ flex: "1" }}
           >
             <div className="overflow-auto flex-1">
-              <table className="w-full text-xs">
+              <table className="w-full text-[11px]">
                 <thead className="sticky top-0 bg-card/95 backdrop-blur">
                   <tr className="border-b border-border/50">
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
                       Time
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
                       Type
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
-                      USD
-                    </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
                       {tokenData.ticker}
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
                       BNB
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
+                      Price
+                    </th>
+                    <th className="hidden lg:table-cell text-left py-1.5 text-muted-foreground font-normal">
                       MCap
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="hidden md:table-cell text-left py-1.5 text-muted-foreground font-normal">
                       Trader
                     </th>
-                    <th className="text-left py-2 text-muted-foreground font-normal">
+                    <th className="text-left py-1.5 text-muted-foreground font-normal">
                       TX
                     </th>
                   </tr>
@@ -637,22 +943,22 @@ const TokenDetails = () => {
                       key={i}
                       className="border-b border-border/50 hover:bg-muted/20"
                     >
-                      <td className="py-2 text-muted-foreground">{tx.time}</td>
+                      <td className="py-1.5 text-muted-foreground">{tx.time}</td>
                       <td
-                        className={`py-2 ${
+                        className={`py-1.5 ${
                           tx.type === "buy"
                             ? "text-green-500"
                             : "text-red-500"
                         }`}
                       >
-                        {tx.type}
+                        {tx.type.toUpperCase()}
                       </td>
-                      <td className="py-2 font-mono">${tx.usd}</td>
-                      <td className="py-2 font-mono">{tx.amount}</td>
-                      <td className="py-2 font-mono">{tx.sol}</td>
-                      <td className="py-2 font-mono">{tx.mcap}</td>
-                      <td className="py-2 font-mono">{tx.trader}</td>
-                      <td className="py-2">
+                      <td className="py-1.5 font-mono">{tx.amount}</td>
+                      <td className="py-1.5 font-mono">{tx.bnb}</td>
+                      <td className="py-1.5 font-mono">{tx.price}</td>
+                      <td className="hidden lg:table-cell py-1.5 font-mono">{tx.mcap}</td>
+                      <td className="hidden md:table-cell py-1.5 font-mono">{tx.trader}</td>
+                      <td className="py-1.5">
                         <Button
                           variant="ghost"
                           size="icon"

@@ -6,6 +6,13 @@ import { useWallet } from "@/hooks/useWallet";
 import { useCallback } from "react";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
 
+// Public RPC endpoints often enforce a max eth_getLogs block-range (commonly 1,000 blocks).
+// Keep our scans bounded and chunked so LaunchIt works reliably even on public endpoints.
+const LOG_CHUNK_SIZE = 900;
+// For UI (holders/volume and timeframe analytics), we only need recent history.
+// 50k blocks is ~1–2 days on BSC (approx), which safely covers 24h windows.
+const DEFAULT_ACTIVITY_LOOKBACK_BLOCKS = 50_000;
+
 const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS ?? "";
 
 const toAbi = (x: any) => (x?.abi ?? x) as ethers.InterfaceAbi;
@@ -52,6 +59,10 @@ export type CampaignMetrics = {
   graduationTarget: bigint;
   liquidityBps: bigint;
   protocolFeeBps: bigint;
+
+  // Graduation / DEX launch signals (may be missing in older deployments)
+  launched?: boolean;
+  finalizedAt?: bigint;
 };
 
 export type CampaignActivity = {
@@ -94,6 +105,37 @@ const formatCount = (n: number): string => {
   return String(n);
 };
 
+// ---------------- Log helpers (chunked) ----------------
+async function getLogsChunked(
+  provider: any,
+  params: { address: string; topics?: (string | string[] | null)[] },
+  fromBlock: number,
+  toBlock: number
+) {
+  const logs: any[] = [];
+  for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_SIZE) {
+    const end = Math.min(toBlock, start + LOG_CHUNK_SIZE - 1);
+    const chunk = await provider.getLogs({ ...params, fromBlock: start, toBlock: end });
+    logs.push(...chunk);
+  }
+  return logs;
+}
+
+async function queryFilterChunked(
+  contract: any,
+  filter: any,
+  fromBlock: number,
+  toBlock: number
+) {
+  const logs: any[] = [];
+  for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_SIZE) {
+    const end = Math.min(toBlock, start + LOG_CHUNK_SIZE - 1);
+    const chunk = await contract.queryFilter(filter, start, end);
+    logs.push(...chunk);
+  }
+  return logs;
+}
+
 
 // ---------------- MOCK DATA (used when USE_MOCK_DATA === true) ----------------
 
@@ -110,8 +152,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://launchit.mock",
     extraLink: "The first mock campaign for testing the UI.",
     holders: "1.2k",
-    volume: "$12.4k",
-    marketCap: "$420.0k",
+    volume: "12.4k BNB",
+    marketCap: "420.0k BNB",
     timeAgo: "3d",
     dexPairAddress: "0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
     dexScreenerUrl:
@@ -129,8 +171,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "",
     extraLink: "Mock token for curve chart testing.",
     holders: "0",
-    volume: "$0",
-    marketCap: "$12.3k",
+    volume: "0 BNB",
+    marketCap: "12.3k BNB",
     timeAgo: "now",
     dexPairAddress: "0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
     dexScreenerUrl:
@@ -150,8 +192,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/piaipin",
     extraLink: "Mock campaign for UI design: PiaiPin.",
     holders: "1",
-    volume: "$34",
-    marketCap: "$6.17k",
+    volume: "34 BNB",
+    marketCap: "6.17k BNB",
     timeAgo: "13h",
   },
   {
@@ -167,8 +209,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/nova",
     extraLink: "Mock campaign for UI design: Nova Token.",
     holders: "12",
-    volume: "$1.2k",
-    marketCap: "$22.8k",
+    volume: "1.2k BNB",
+    marketCap: "22.8k BNB",
     timeAgo: "5h",
   },
   {
@@ -184,8 +226,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/zenith",
     extraLink: "Mock campaign for UI design: Zenith Protocol.",
     holders: "234",
-    volume: "$2.1k",
-    marketCap: "$45.8k",
+    volume: "2.1k BNB",
+    marketCap: "45.8k BNB",
     timeAgo: "2d",
   },
   {
@@ -201,8 +243,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "",
     extraLink: "Mock campaign for UI design: Apex Finance.",
     holders: "189",
-    volume: "$1.8k",
-    marketCap: "$52.3k",
+    volume: "1.8k BNB",
+    marketCap: "52.3k BNB",
     timeAgo: "1d",
   },
   {
@@ -218,8 +260,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/light",
     extraLink: "Mock campaign for UI design: Light.",
     holders: "10.70k",
-    volume: "$67.31k",
-    marketCap: "$4.08m",
+    volume: "67.31k BNB",
+    marketCap: "4.08m BNB",
     timeAgo: "12w",
   },
   {
@@ -235,8 +277,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/magik",
     extraLink: "Mock campaign for UI design: Magikarp.",
     holders: "952",
-    volume: "$3.43k",
-    marketCap: "$828.80k",
+    volume: "3.43k BNB",
+    marketCap: "828.80k BNB",
     timeAgo: "9w",
   },
   {
@@ -252,8 +294,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/svmacc",
     extraLink: "Mock campaign for UI design: SvmAcc.",
     holders: "1.70k",
-    volume: "$18.32k",
-    marketCap: "$314.28k",
+    volume: "18.32k BNB",
+    marketCap: "314.28k BNB",
     timeAgo: "10w",
   },
   {
@@ -269,8 +311,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "",
     extraLink: "Mock campaign for UI design: Midcurve.",
     holders: "2.07k",
-    volume: "$0",
-    marketCap: "$289.04k",
+    volume: "0 BNB",
+    marketCap: "289.04k BNB",
     timeAgo: "10w",
   },
   {
@@ -286,8 +328,8 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     website: "https://example.com/daniel",
     extraLink: "Mock campaign for UI design: Daniel.",
     holders: "2.07k",
-    volume: "$57.28k",
-    marketCap: "$1.52m",
+    volume: "57.28k BNB",
+    marketCap: "1.52m BNB",
     timeAgo: "11w",
   },
 ];
@@ -342,7 +384,7 @@ const MOCK_METRICS_BY_CAMPAIGN: Record<string, CampaignMetrics> = {
     protocolFeeBps: 200n,
   },
   "0x7777777777777777777777777777777777777703": {
-    sold: 450_000n,
+    sold: 1_000_000n,
     curveSupply: 1_000_000n,
     liquiditySupply: 500_000n,
     creatorReserve: 500_000n,
@@ -354,7 +396,7 @@ const MOCK_METRICS_BY_CAMPAIGN: Record<string, CampaignMetrics> = {
     protocolFeeBps: 200n,
   },
   "0x7777777777777777777777777777777777777704": {
-    sold: 600_000n,
+    sold: 1_000_000n,
     curveSupply: 1_000_000n,
     liquiditySupply: 500_000n,
     creatorReserve: 500_000n,
@@ -390,7 +432,7 @@ const MOCK_METRICS_BY_CAMPAIGN: Record<string, CampaignMetrics> = {
     protocolFeeBps: 200n,
   },
   "0x7777777777777777777777777777777777777707": {
-    sold: 780_000n,
+    sold: 1_000_000n,
     curveSupply: 1_000_000n,
     liquiditySupply: 500_000n,
     creatorReserve: 500_000n,
@@ -492,11 +534,19 @@ export function useLaunchpad() {
     async (campaignAddress: string): Promise<CampaignMetrics | null> => {
       // 🔹 MOCK MODE
       if (USE_MOCK_DATA) {
-        return (
+        const m =
           MOCK_METRICS_BY_CAMPAIGN[campaignAddress.toLowerCase()] ??
           MOCK_METRICS_BY_CAMPAIGN[campaignAddress] ??
-          null
-        );
+          null;
+
+        if (!m) return null;
+
+        // In mock mode, infer "launched" once sold reaches the graduation target
+        // unless explicitly set in the mock payload.
+        const launched = (m as any).launched ?? (m.graduationTarget > 0n && m.sold >= m.graduationTarget);
+        const finalizedAt = (m as any).finalizedAt ?? (launched ? 1n : 0n);
+
+        return { ...m, launched, finalizedAt } as CampaignMetrics;
       }
 
       const campaign = getCampaign(campaignAddress);
@@ -526,6 +576,20 @@ export function useLaunchpad() {
         campaign.currentPrice(),
       ]);
 
+      // Graduation / DEX launch flags (not present in all deployments)
+      let launched = false;
+      let finalizedAt = 0n;
+      try {
+        launched = await campaign.launched();
+      } catch {
+        // ignore
+      }
+      try {
+        finalizedAt = await campaign.finalizedAt();
+      } catch {
+        // ignore
+      }
+
       return {
         sold,
         curveSupply,
@@ -537,6 +601,8 @@ export function useLaunchpad() {
         liquidityBps,
         protocolFeeBps,
         currentPrice,
+        launched,
+        finalizedAt,
       };
     },
     [getCampaign]
@@ -551,7 +617,9 @@ export function useLaunchpad() {
 
       try {
         const filter = factory.filters.CampaignCreated(null, campaignAddress, null);
-        const events = await factory.queryFilter(filter, 0, "latest");
+        const latest = await provider.getBlockNumber();
+        const fromBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
+        const events = await queryFilterChunked(factory, filter, fromBlock, latest);
         const ev = events && events.length ? events[0] : null;
         return ev?.blockNumber ?? null;
       } catch (e) {
@@ -567,8 +635,13 @@ export function useLaunchpad() {
       if (USE_MOCK_DATA) return null;
       if (!provider) return null;
 
-      const createdBlock = (await getCampaignCreatedBlock(campaignAddress)) ?? 0;
       const latest = await provider.getBlockNumber();
+      // Prefer the actual creation block when we can find it, otherwise
+      // fall back to a bounded lookback window. This prevents huge log scans
+      // and avoids provider max-range errors.
+      const createdBlock =
+        (await getCampaignCreatedBlock(campaignAddress)) ??
+        Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
 
       // Phase 2 fast-path: prefer on-chain counters over log scanning.
       try {
@@ -609,12 +682,12 @@ export function useLaunchpad() {
       const sellers = new Set<string>();
 
       try {
-        const buyLogs = await provider.getLogs({
-          address: campaignAddress,
-          fromBlock: createdBlock,
-          toBlock: latest,
-          topics: [buyTopic],
-        });
+        const buyLogs = await getLogsChunked(
+          provider,
+          { address: campaignAddress, topics: [buyTopic] },
+          createdBlock,
+          latest
+        );
 
         for (const log of buyLogs) {
           const parsed = iface.parseLog(log);
@@ -624,12 +697,12 @@ export function useLaunchpad() {
           buyVolumeWei += cost;
         }
 
-        const sellLogs = await provider.getLogs({
-          address: campaignAddress,
-          fromBlock: createdBlock,
-          toBlock: latest,
-          topics: [sellTopic],
-        });
+        const sellLogs = await getLogsChunked(
+          provider,
+          { address: campaignAddress, topics: [sellTopic] },
+          createdBlock,
+          latest
+        );
 
         for (const log of sellLogs) {
           const parsed = iface.parseLog(log);
@@ -676,8 +749,8 @@ export function useLaunchpad() {
       if (USE_MOCK_DATA) {
         const anyC = campaign as any;
         holders = anyC.holders ?? "0";
-        volume = anyC.volume ?? "$0";
-        marketCap = anyC.marketCap ?? "$0";
+        volume = anyC.volume ?? "0 BNB";
+        marketCap = anyC.marketCap ?? "0 BNB";
 
         return { campaign, metrics, stats: { holders, volume, marketCap } };
       }

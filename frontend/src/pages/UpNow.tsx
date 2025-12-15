@@ -9,20 +9,22 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles, TrendingUp, Target, Globe, Users } from "lucide-react";
+import { Sparkles, TrendingUp, Target, Globe, Users, Rocket } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useLaunchpad } from "@/lib/launchpadClient";
-import type { CampaignInfo, CampaignMetrics, CampaignSummary } from "@/lib/launchpadClient";
+import type { CampaignMetrics, CampaignSummary } from "@/lib/launchpadClient";
 import type { Token } from "@/types/token";
 
 type Tab = "up" | "higher" | "moon";
 
-const TokenCard = ({ token }: { token: Token }) => {
+const TokenCard = ({ token, className }: { token: Token; className?: string }) => {
   const navigate = useNavigate();
 
   return (
     <div
-      className="bg-card/40 backdrop-blur-sm rounded-xl p-3 md:p-4 border border-border hover:border-accent/50 transition-all cursor-pointer"
+      className={`bg-card/40 backdrop-blur-sm rounded-xl p-3 md:p-4 border border-border hover:border-accent/50 transition-all cursor-pointer ${
+        className ?? ""
+      }`}
       onClick={() => navigate(`/token/${token.ticker.toLowerCase()}`)}
     >
       <div className="flex items-start gap-3">
@@ -142,6 +144,35 @@ const classifyTab = (m: CampaignMetrics | null): Tab => {
   }
 };
 
+const isGraduatedFromMetrics = (m: CampaignMetrics | null): boolean => {
+  if (!m) return false;
+
+  // Prefer explicit flags when available; otherwise fall back to sold >= target
+  // so the UI works across older/newer deployments and in mock mode.
+  const hasLaunchFlag = (m as any)?.launched !== undefined || (m as any)?.finalizedAt !== undefined;
+
+  if (hasLaunchFlag) {
+    const launched = Boolean((m as any)?.launched);
+    const finalizedAt = (m as any)?.finalizedAt;
+
+    try {
+      const finalizedAtBig =
+        typeof finalizedAt === "bigint"
+          ? finalizedAt
+          : BigInt(Number(finalizedAt ?? 0));
+      return launched || finalizedAtBig > 0n;
+    } catch {
+      return launched;
+    }
+  }
+
+  try {
+    return m.graduationTarget > 0n && m.sold >= m.graduationTarget;
+  } catch {
+    return false;
+  }
+};
+
 const UpNow = () => {
   const { fetchCampaigns, fetchCampaignSummary } = useLaunchpad();
 
@@ -151,6 +182,7 @@ const UpNow = () => {
   const [upTokens, setUpTokens] = useState<Token[]>([]);
   const [higherTokens, setHigherTokens] = useState<Token[]>([]);
   const [moonTokens, setMoonTokens] = useState<Token[]>([]);
+  const [graduatedTokens, setGraduatedTokens] = useState<Token[]>([]);
 
   const isMobile =
     typeof window !== "undefined" ? window.innerWidth < 768 : false;
@@ -172,6 +204,7 @@ const UpNow = () => {
         const nextUp: Token[] = [];
         const nextHigher: Token[] = [];
         const nextMoon: Token[] = [];
+        const nextGraduated: Token[] = [];
 
         campaigns.forEach((c, idx) => {
           const r = results[idx];
@@ -191,7 +224,13 @@ const UpNow = () => {
                 hasTwitter: Boolean(c.xAccount && c.xAccount.length > 0),
               };
 
-          const tab = classifyTab(summary?.metrics ?? null);
+          const metrics = summary?.metrics ?? null;
+          if (isGraduatedFromMetrics(metrics)) {
+            nextGraduated.push(token);
+            return;
+          }
+
+          const tab = classifyTab(metrics);
 
           if (tab === "up") nextUp.push(token);
           else if (tab === "higher") nextHigher.push(token);
@@ -201,12 +240,14 @@ const UpNow = () => {
         setUpTokens(nextUp);
         setHigherTokens(nextHigher);
         setMoonTokens(nextMoon);
+        setGraduatedTokens(nextGraduated);
       } catch (e) {
         console.error("[UpNow] Failed to load campaigns", e);
         if (!cancelled) {
           setUpTokens([]);
           setHigherTokens([]);
           setMoonTokens([]);
+          setGraduatedTokens([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -264,7 +305,7 @@ const UpNow = () => {
           )}
         </div>
 
-        <div className="px-4 md:px-6 pb-4 md:pb-6 space-y-3">
+        <div className="flex-1 overflow-y-auto px-4 md:px-6 pb-4 md:pb-6 space-y-3 scrollbar-thin scrollbar-thumb-accent/50 scrollbar-track-muted">
           {loading ? (
             <div className="text-center py-12">
               <p className="font-retro text-muted-foreground text-sm">
@@ -287,26 +328,66 @@ const UpNow = () => {
     );
   };
 
+  const renderGraduatedRow = () => {
+    // Keep the row visible on all layouts, but only render the container
+    // when we have something to show (or we are still loading).
+    if (!loading && graduatedTokens.length === 0) return null;
+
+    return (
+      <div className="bg-card/30 backdrop-blur-md rounded-2xl border border-border overflow-hidden shrink-0">
+        <div className="flex items-center justify-between p-4 md:p-6 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-accent/20 p-2 md:p-3 rounded-xl">
+              <Rocket className="h-5 w-5 md:h-6 md:w-6 text-accent" />
+            </div>
+            <h2 className="text-xl md:text-2xl font-retro text-foreground">graduated</h2>
+          </div>
+          <span className="text-xs md:text-sm font-retro text-muted-foreground">
+            Trading on DEX
+          </span>
+        </div>
+
+        <div className="px-4 md:px-6 pb-4 md:pb-6 overflow-x-auto scrollbar-thin scrollbar-thumb-accent/50 scrollbar-track-muted">
+          {loading ? (
+            <div className="py-6">
+              <p className="font-retro text-muted-foreground text-sm">Loading tokens...</p>
+            </div>
+          ) : (
+            <div className="flex gap-3">
+              {graduatedTokens.map((token) => (
+                <TokenCard key={token.id} token={token} className="min-w-[280px]" />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 pt-28 lg:pt-28 pl-0 lg:pl-72">
-      <div
-        className={`h-full ${isMobile ? "pb-20" : ""} p-4 md:p-6 ${
-          isMobile
-            ? "flex flex-col"
-            : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
-        } gap-4`}
-      >
-        {isMobile ? (
-          renderSection(activeTab)
-        ) : (
-          <>
-            {renderSection("up")}
-            {renderSection("higher")}
-            <div className="md:col-span-2 lg:col-span-1">
-              {renderSection("moon")}
-            </div>
-          </>
-        )}
+      <div className={`h-full ${isMobile ? "pb-20" : ""} p-4 md:p-6 flex flex-col gap-4`}>
+        {renderGraduatedRow()}
+
+        <div
+          className={`flex-1 ${
+            isMobile
+              ? "flex"
+              : "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3"
+          } gap-4`}
+        >
+          {isMobile ? (
+            <div className="flex-1">{renderSection(activeTab)}</div>
+          ) : (
+            <>
+              {renderSection("up")}
+              {renderSection("higher")}
+              <div className="md:col-span-2 lg:col-span-1">
+                {renderSection("moon")}
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
       {isMobile && (

@@ -1,28 +1,23 @@
-import type { RawTradeEvent } from "@/types/token";
-import type { Transaction } from "@/types/token";
+import type { RawTradeEvent, Transaction } from "@/types/token";
 
-// later you can pass in a BNB/USD price feed or metrics
+// App convention: everything is expressed in BNB (no USD conversion)
 export function mapRawTradeToTransaction(
   raw: RawTradeEvent,
-  opts?: { bnbUsdPrice?: number; marketCapUsd?: number }
+  opts?: { marketCapBnb?: string }
 ): Transaction {
   const date = new Date(raw.timestamp * 1000);
 
-  const usdValue =
-    opts?.bnbUsdPrice != null
-      ? (Number(raw.baseAmountWei) / 1e18) * opts.bnbUsdPrice
-      : Number(raw.baseAmountWei) / 1e18; // fallback: treat baseAmount as “USD-like” for now
+  const bnb = Number(raw.baseAmountWei) / 1e18;
+  const token = Number(raw.tokenAmount) / 1e18;
+  const price = token > 0 ? bnb / token : 0;
 
   return {
     time: date.toLocaleTimeString(), // e.g. "14:32:11" (you can switch to relative-time if you prefer)
     type: raw.side,
-    usd: Number(usdValue.toFixed(2)),
-    amount: (Number(raw.tokenAmount) / 1e9).toFixed(0), // adjust decimals to your token (18, 9, etc.)
-    sol: Number((Number(raw.baseAmountWei) / 1e18).toFixed(4)), // this is “BNB” in your app; we keep the field name for now
-    mcap:
-      opts?.marketCapUsd != null
-        ? `$${opts.marketCapUsd.toLocaleString()}`
-        : "$0",
+    amount: token.toFixed(0),
+    bnb: `${bnb.toFixed(4)} BNB`,
+    price: `${price.toFixed(8)} BNB`,
+    mcap: opts?.marketCapBnb ?? "—",
     trader: shortenAddress(raw.trader),
     tx: raw.txHash,
   };

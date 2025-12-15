@@ -7,11 +7,11 @@ import { Coin } from "@/types/profile";
 
 // TopBar ticker items
 export const tickerItems = [
-  { name: "token.ticker", price: "$30.10M", change: "+$5.56k/1h", positive: true },
-  { name: "token.ticker", price: "$12.85M", change: "-$2.3k/1h", positive: false },
-  { name: "token.ticker", price: "$14.23M", change: "-$1.8k/1h", positive: false },
-  { name: "token.ticker", price: "$36.90M", change: "+$3.4k/1h", positive: true },
-  { name: "token.ticker", price: "$8.8k", change: "+$14.6k/1h", positive: true },
+  { name: "token.ticker", price: "30.10M BNB", change: "+5.56k BNB/1h", positive: true },
+  { name: "token.ticker", price: "12.85M BNB", change: "-2.3k BNB/1h", positive: false },
+  { name: "token.ticker", price: "14.23M BNB", change: "-1.8k BNB/1h", positive: false },
+  { name: "token.ticker", price: "36.90M BNB", change: "+3.4k BNB/1h", positive: true },
+  { name: "token.ticker", price: "8.8k BNB", change: "+14.6k BNB/1h", positive: true },
 ];
 
 // Filter options
@@ -32,8 +32,8 @@ export const inceptionTokens: Token[] = [
     ticker: "PIAIPIN",
     name: "PiaiPin",
     holders: "1",
-    volume: "$34",
-    marketCap: "$6.17k",
+    volume: "34 BNB",
+    marketCap: "6.17k BNB",
     timeAgo: "13h",
     hasWebsite: true,
     hasTwitter: true,
@@ -44,8 +44,8 @@ export const inceptionTokens: Token[] = [
     ticker: "NOVA",
     name: "Nova Token",
     holders: "12",
-    volume: "$156",
-    marketCap: "$8.2k",
+    volume: "156 BNB",
+    marketCap: "8.2k BNB",
     timeAgo: "8h",
     hasWebsite: true,
     hasTwitter: true,
@@ -56,8 +56,8 @@ export const inceptionTokens: Token[] = [
     ticker: "MOCK2",
     name: "Mock 2 (Curve Test)",
     holders: "0",
-    volume: "$0",
-    marketCap: "$12.3k",
+    volume: "0 BNB",
+    marketCap: "12.3k BNB",
     timeAgo: "now",
     hasWebsite: false,
     hasTwitter: false,
@@ -72,8 +72,8 @@ export const higherTokens: Token[] = [
     ticker: "ZENITH",
     name: "Zenith Protocol",
     holders: "234",
-    volume: "$2.1k",
-    marketCap: "$45.8k",
+    volume: "2.1k BNB",
+    marketCap: "45.8k BNB",
     timeAgo: "2d",
     hasWebsite: true,
     hasTwitter: true,
@@ -84,8 +84,8 @@ export const higherTokens: Token[] = [
     ticker: "APEX",
     name: "Apex Finance",
     holders: "187",
-    volume: "$1.8k",
-    marketCap: "$52.3k",
+    volume: "1.8k BNB",
+    marketCap: "52.3k BNB",
     timeAgo: "1d",
     hasWebsite: false,
     hasTwitter: true,
@@ -100,8 +100,8 @@ export const migratedTokens: Token[] = [
     ticker: "LIGHT",
     name: "Light",
     holders: "10.70k",
-    volume: "$67.31k",
-    marketCap: "$4.08m",
+    volume: "67.31k BNB",
+    marketCap: "4.08m BNB",
     timeAgo: "12w",
     hasWebsite: true,
     hasTwitter: true,
@@ -112,8 +112,8 @@ export const migratedTokens: Token[] = [
     ticker: "MAGIK",
     name: "Magikarp",
     holders: "952",
-    volume: "$3.43k",
-    marketCap: "$828.80k",
+    volume: "3.43k BNB",
+    marketCap: "828.80k BNB",
     timeAgo: "9w",
     hasWebsite: true,
     hasTwitter: true,
@@ -179,8 +179,8 @@ export const mockTokenData: TokenDetailsData = {
 };
 
 export const mockTransactions: Transaction[] = [
-  { time: "15h", type: "sell", usd: 17.02, amount: "2.77m", sol: 0.0964, mcap: "6.12k", trader: "Bzdb...HxLW", tx: "#" },
-  { time: "15h", type: "buy", usd: 17.2, amount: "2.77m", sol: 0.0975, mcap: "6.19k", trader: "Bzdb...HxLW", tx: "#" },
+  { time: "15h", type: "sell", amount: "2.77m", bnb: "0.0964 BNB", price: "0.00000003 BNB", mcap: "6.12k BNB", trader: "Bzdb...HxLW", tx: "#" },
+  { time: "15h", type: "buy", amount: "2.77m", bnb: "0.0975 BNB", price: "0.00000004 BNB", mcap: "6.19k BNB", trader: "Bzdb...HxLW", tx: "#" },
 ];
 export const mockRawTrades: RawTradeEvent[] = [
   {

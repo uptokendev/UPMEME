@@ -265,7 +265,7 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
               <span className="text-xs text-muted-foreground">Launch one</span>
             </GlassButton>
           ) : (
-            tickerBaseLoop.concat(tickerBaseLoop).map((item, i) => (
+            [...tickerBaseLoop, ...tickerBaseLoop].map((item, i) => (
               <GlassButton
                 key={`${item.key}-${i}`}
                 size="sm"

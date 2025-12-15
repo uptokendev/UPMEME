@@ -62,10 +62,10 @@ export interface TokenDetailsData {
 export interface Transaction {
   time: string;
   type: "buy" | "sell";
-  usd: number;
   amount: string;
-  sol: number;
-  mcap: string;
+  bnb: string;
+  price: string;
+  mcap: string; // formatted in BNB
   trader: string;
   tx: string;
 }
