@@ -5,51 +5,40 @@ import { fileURLToPath } from "url";
 
 const { Pool } = pg;
 
-function readCaFromEnv() {
-  const ca = process.env.PG_CA_CERT;
-  if (!ca) return null;
-  return ca.includes("\\n") ? ca.replace(/\\n/g, "\n") : ca;
-}
+const DATABASE_URL = process.env.DATABASE_URL;
 
-function readCaFromRepo() {
+function loadRepoCa() {
   try {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = path.dirname(__filename);
     const caPath = path.join(__dirname, "certs", "aiven-ca.pem");
-    return fs.readFileSync(caPath, "utf8");
-  } catch (e) {
+    const ca = fs.readFileSync(caPath, "utf8");
+    return ca;
+  } catch {
     return null;
   }
 }
 
-function buildPool() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+let _pool = globalThis.__upmeme_pool;
 
-  const ca = readCaFromEnv() || readCaFromRepo();
+if (!_pool) {
+  if (!DATABASE_URL) throw new Error("DATABASE_URL missing");
 
-  // IMPORTANT:
-  // If CA is available -> verify properly.
-  // If CA is NOT available (common when file isn't bundled into a lambda) -> fall back to rejectUnauthorized:false.
-  const ssl = ca
-    ? { ca, rejectUnauthorized: true }
-    : { rejectUnauthorized: false };
+  const ca = loadRepoCa();
 
-  console.log("[api/_db] Creating PG pool. CA:", Boolean(ca), "rejectUnauthorized:", ssl.rejectUnauthorized);
+  console.log("[api/_db] CA loaded from repo:", Boolean(ca));
 
-  return new Pool({
-    connectionString: url,
-    ssl,
+  _pool = new Pool({
+    connectionString: DATABASE_URL,
+    ssl: ca ? { ca, rejectUnauthorized: true } : { rejectUnauthorized: false },
     max: 2,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
   });
+
+  globalThis.__upmeme_pool = _pool;
+
+  _pool.on("error", (err) => console.error("[api/_db] Pool error", err));
 }
 
-// Serverless-safe reuse per lambda runtime:
-const g = globalThis;
-if (!g.__UPMEMEPgPool) {
-  g.__UPMEMEPgPool = buildPool();
-}
-
-export const pool = g.__UPMEMEPgPool;
+export const pool = _pool;
