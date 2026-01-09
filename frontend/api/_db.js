@@ -6,7 +6,6 @@ const DATABASE_URL = process.env.DATABASE_URL;
 function readCa() {
   const ca = process.env.PG_CA_CERT;
   if (!ca) return null;
-  // In case it was stored with literal "\n"
   return ca.includes("\\n") ? ca.replace(/\\n/g, "\n") : ca;
 }
 
@@ -19,11 +18,13 @@ let _pool = globalThis.__upmeme_pool;
 if (!_pool && DATABASE_URL) {
   const ca = readCa();
 
+  console.log("[api/_db] Creating pool. Has CA:", Boolean(ca));
+
   _pool = new Pool({
     connectionString: DATABASE_URL,
     ssl: ca
-      ? { ca, rejectUnauthorized: true }     // best practice: trust Aiven CA
-      : { rejectUnauthorized: false },       // fallback (works, less strict)
+      ? { ca, rejectUnauthorized: true }
+      : { rejectUnauthorized: false },
     max: 5,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
