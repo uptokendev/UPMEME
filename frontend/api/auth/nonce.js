@@ -31,6 +31,10 @@ export default async function handler(req, res) {
     return json(res, 200, { nonce, expiresAt: expiresAt.toISOString() });
   } catch (e) {
   console.error("[api/auth/nonce]", e);
-  return json(res, 500, { error: String(e?.message ?? e) });
+  return json(res, 200, {
+  vercelEnv: process.env.VERCEL_ENV || null,
+  dbHost: (() => { try { return new URL(process.env.DATABASE_URL).hostname; } catch { return null; } })(),
+  caB64Len: (process.env.PG_CA_CERT_B64 || "").length
+});
 }
 }
