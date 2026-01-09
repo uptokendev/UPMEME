@@ -361,7 +361,7 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
 
                   {showSwitch && (
                     <p className="text-[11px] text-destructive/90">
-                      Wrong network detected. Switch to {targetLabel} to use LaunchIt.
+                      Wrong network detected. Switch to {targetLabel} to use UPMEME.
                     </p>
                   )}
                 </div>
@@ -392,7 +392,7 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
                   >
                     <p className="text-xs md:text-sm font-medium">Disconnect</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Disconnect from LaunchIt
+                      Disconnect from UPMEME
                     </p>
                   </button>
                 </div>
@@ -448,7 +448,7 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
                 </div>
 
                 <p className="text-[10px] text-muted-foreground mt-2">
-                  Note: “Disconnect” only disconnects LaunchIt. To revoke access, remove
+                  Note: “Disconnect” only disconnects UPMEME. To revoke access, remove
                   this site in your wallet settings.
                 </p>
               </>

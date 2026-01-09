@@ -19,8 +19,8 @@ function buildPool() {
 
 // Serverless-safe: reuse a single pool per runtime.
 const g = globalThis;
-if (!g.__launchitPgPool) {
-  g.__launchitPgPool = buildPool();
+if (!g.__UPMEMEPgPool) {
+  g.__UPMEMEPgPool = buildPool();
 }
 
-export const pool = g.__launchitPgPool;
+export const pool = g.__UPMEMEPgPool;

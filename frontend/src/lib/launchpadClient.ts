@@ -8,7 +8,7 @@ import { useCallback } from "react";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
 
 // Public RPC endpoints often enforce a max eth_getLogs block-range (commonly 1,000 blocks).
-// Keep our scans bounded and chunked so LaunchIt works reliably even on public endpoints.
+// Keep our scans bounded and chunked so UPMEME works reliably even on public endpoints.
 const LOG_CHUNK_SIZE = 900;
 // For UI (holders/volume and timeframe analytics), we only need recent history.
 // 50k blocks is ~1–2 days on BSC (approx), which safely covers 24h windows.
@@ -152,11 +152,11 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     campaign: "0x1111111111111111111111111111111111111111",
     token: "0x2222222222222222222222222222222222222222",
     creator: "0x9999999999999999999999999999999999999999",
-    name: "LaunchIT Mock Token",
+    name: "UPMEME Mock Token",
     symbol: "LIT",
     logoURI: "/placeholder.svg",
-    xAccount: "https://x.com/launchit_mock",
-    website: "https://launchit.mock",
+    xAccount: "https://x.com/UPMEME_mock",
+    website: "https://UPMEME.mock",
     extraLink: "The first mock campaign for testing the UI.",
     holders: "1.2k",
     volume: "12.4k BNB",

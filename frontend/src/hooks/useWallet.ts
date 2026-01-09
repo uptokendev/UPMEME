@@ -40,8 +40,8 @@ type WalletHook = {
   isConnected: boolean;
 };
 
-const STORAGE_CONNECTED = "launchit_wallet_connected";
-const STORAGE_WALLET_TYPE = "launchit_wallet_type";
+const STORAGE_CONNECTED = "UPMEME";
+const STORAGE_WALLET_TYPE = "UPMEME_wallet_type";
 
 const getStoredConnected = () => {
   try {

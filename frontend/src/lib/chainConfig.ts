@@ -1,5 +1,5 @@
 // src/lib/chainConfig.ts
-// Centralized chain + env config for LaunchIt (BSC mainnet + testnet).
+// Centralized chain + env config for UPMEME (BSC mainnet + testnet).
 //
 // Design goal:
 // - Reads follow the wallet's connected chain (if allowed), otherwise fall back to default chain.

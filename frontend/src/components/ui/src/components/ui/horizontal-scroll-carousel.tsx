@@ -29,7 +29,7 @@ const PLACEHOLDER_CARDS: CarouselCard[] = [
     id: 1,
     image: "https://images.unsplash.com/photo-1621504450181-5d356f61d307?w=400&h=400&fit=crop",
     ticker: "LAUNCH",
-    tokenName: "LaunchIt Preview",
+    tokenName: "UPMEME Preview",
     contractAddress: "0x0000000000000000000000000000000000000000",
     description: "Your first bonding curve token will appear here once deployed.",
     marketCap: "0",

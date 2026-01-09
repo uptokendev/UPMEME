@@ -12,8 +12,8 @@ type ProviderCache = Record<string, ethers.JsonRpcProvider>;
 
 const getCache = (): ProviderCache => {
   const g = globalThis as any;
-  if (!g.__launchit_read_providers) g.__launchit_read_providers = {};
-  return g.__launchit_read_providers as ProviderCache;
+  if (!g.__UPMEME_read_providers) g.__UPMEME_read_providers = {};
+  return g.__UPMEME_read_providers as ProviderCache;
 };
 
 export function getReadProvider(chainId: SupportedChainId): ethers.JsonRpcProvider {

@@ -1,5 +1,5 @@
 {
-  "name": "launchit",
+  "name": "UPMEME",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -14,15 +14,15 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/uptokendev/LaunchIt.git"
+    "url": "git+https://github.com/uptokendev/UPMEME.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/uptokendev/LaunchIt/issues"
+    "url": "https://github.com/uptokendev/UPMEME/issues"
   },
-  "homepage": "https://github.com/uptokendev/LaunchIt#readme",
+  "homepage": "https://github.com/uptokendev/UPMEME#readme",
   "devDependencies": {
     "@nomicfoundation/hardhat-toolbox": "^6.1.0",
     "@types/node": "^24.10.1",
