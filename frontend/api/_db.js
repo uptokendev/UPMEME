@@ -2,25 +2,32 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-function buildPool() {
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+const DATABASE_URL = process.env.DATABASE_URL;
 
-  // Aiven Postgres requires TLS. Using rejectUnauthorized=false is the pragmatic
-  // default for many managed providers when you are not shipping a CA bundle.
-  // If you later add a CA cert, switch this to a strict config.
-  return new Pool({
-    connectionString: url,
+// Fail fast with a clear message (instead of mysterious 500s)
+if (!DATABASE_URL) {
+  console.error("[api/_db] Missing DATABASE_URL env var");
+}
+
+// In serverless, reuse the pool across invocations if possible
+let _pool = globalThis.__upmeme_pool;
+
+if (!_pool && DATABASE_URL) {
+  _pool = new Pool({
+    connectionString: DATABASE_URL,
+    // Most hosted Postgres (Supabase included) needs SSL from serverless
     ssl: { rejectUnauthorized: false },
-    // Keep this small to reduce pressure on free-tier connection limits.
-    max: 2,
+    // Prevent connection storms
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 10_000,
+  });
+
+  globalThis.__upmeme_pool = _pool;
+
+  _pool.on("error", (err) => {
+    console.error("[api/_db] Pool error", err);
   });
 }
 
-// Serverless-safe: reuse a single pool per runtime.
-const g = globalThis;
-if (!g.__UPMEMEPgPool) {
-  g.__UPMEMEPgPool = buildPool();
-}
-
-export const pool = g.__UPMEMEPgPool;
+export const pool = _pool;
