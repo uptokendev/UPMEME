@@ -666,9 +666,7 @@ export function useLaunchpad() {
 
       const latest = await readProvider.getBlockNumber();
 
-      const createdBlock =
-        (await getCampaignCreatedBlock(campaignAddress)) ??
-        Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
+      const createdBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
 
       // Phase 2 fast-path: on-chain counters (cheap) if available
       try {

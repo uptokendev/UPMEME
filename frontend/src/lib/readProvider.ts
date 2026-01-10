@@ -23,9 +23,10 @@ export function getReadProvider(chainId: SupportedChainId): ethers.JsonRpcProvid
 
   const url = getPublicRpcUrl(chainId);
   const p = new ethers.JsonRpcProvider(url, chainId, {
-    // keep defaults; avoid aggressive polling
-    staticNetwork: true,
-  });
+  staticNetwork: true,
+  batchMaxCount: 1,
+  batchStallTime: 0,
+});
   cache[key] = p;
   return p;
 }
