@@ -11,6 +11,7 @@ import { useNavigate } from "react-router-dom";
 
 const Showcase = () => {
   const navigate = useNavigate();
+  
 
   return (
     <div className="h-full flex flex-col relative">
