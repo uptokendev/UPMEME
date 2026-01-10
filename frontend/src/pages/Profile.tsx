@@ -428,9 +428,24 @@ const Profile = () => {
     };
   }, [account, fetchCampaigns, fetchCampaignSummary]);
 
-  // Load balances (native + launchpad token balances)
+    // Load balances (native + launchpad token balances)
   useEffect(() => {
     let cancelled = false;
+
+    const resolveReadProvider = (): ethers.Provider | null => {
+      // 1) If the wallet hook already gives us an ethers provider, use it directly.
+      //    (Do NOT wrap it in BrowserProvider again.)
+      const p = (wallet as any)?.provider;
+      if (p && typeof p.getBalance === "function") return p as ethers.Provider;
+
+      // 2) Fallback to injected provider if it's a real EIP-1193 provider
+      const injected = (window as any)?.ethereum;
+      if (injected && typeof injected.request === "function") {
+        return new BrowserProvider(injected);
+      }
+
+      return null;
+    };
 
     const loadBalances = async () => {
       try {
@@ -440,9 +455,9 @@ const Profile = () => {
           return;
         }
 
-        const provider = anyWallet?.provider || (window as any)?.ethereum;
-        if (!provider) {
-          // Still show empty state; user might be connected via another flow
+        const readProvider = resolveReadProvider();
+        if (!readProvider) {
+          // No usable provider in the browser right now; skip quietly.
           setNativeBalance("");
           setTokenBalances([]);
           return;
@@ -450,23 +465,23 @@ const Profile = () => {
 
         setLoadingBalances(true);
 
-        const ethProvider = new BrowserProvider(provider as any);
-
         // Native (BNB) balance
-        const bal = await ethProvider.getBalance(account as any);
+        const bal = await readProvider.getBalance(account as any);
         const bnb = Number(ethers.formatUnits(bal, 18)).toFixed(4);
         if (!cancelled) setNativeBalance(`${bnb} BNB`);
 
         // Launchpad token balances:
-        // We scan campaigns and check balanceOf(account) for each associated token contract.
         const campaigns = (await fetchCampaigns()) ?? [];
-        const summaries = await Promise.allSettled(campaigns.map((c) => fetchCampaignSummary(c)));
+        const summaries = await Promise.allSettled(
+          campaigns.map((c) => fetchCampaignSummary(c))
+        );
 
         const fulfilled = summaries
-          .filter((r): r is PromiseFulfilledResult<CampaignSummary> => r.status === "fulfilled")
+          .filter(
+            (r): r is PromiseFulfilledResult<CampaignSummary> => r.status === "fulfilled"
+          )
           .map((r) => r.value);
 
-        // Build balance rows
         const rows: TokenBalanceRow[] = [];
 
         for (const s of fulfilled) {
@@ -474,7 +489,7 @@ const Profile = () => {
           if (!tokenAddr) continue;
 
           try {
-            const erc20 = new Contract(tokenAddr as any, ERC20_ABI_MIN as any, ethProvider);
+            const erc20 = new Contract(tokenAddr as any, ERC20_ABI_MIN as any, readProvider);
 
             const [rawBal, decimalsAny, symbolMaybe] = await Promise.all([
               erc20.balanceOf(account) as Promise<bigint>,
@@ -485,7 +500,10 @@ const Profile = () => {
             if (typeof rawBal !== "bigint" || rawBal <= 0n) continue;
 
             const decimals = Number(decimalsAny);
-            const formatted = ethers.formatUnits(rawBal, Number.isFinite(decimals) ? decimals : 18);
+            const formatted = ethers.formatUnits(
+              rawBal,
+              Number.isFinite(decimals) ? decimals : 18
+            );
 
             rows.push({
               campaignAddress: s.campaign.campaign,
@@ -497,13 +515,11 @@ const Profile = () => {
               balanceFormatted: formatted,
             });
           } catch {
-            // ignore token read failures per token
             continue;
           }
         }
 
         if (!cancelled) {
-          // Sort biggest balances first (by raw units; acceptable for MVP)
           setTokenBalances(rows.sort((a, b) => (a.balanceRaw > b.balanceRaw ? -1 : 1)));
         }
       } catch (e) {
@@ -521,7 +537,9 @@ const Profile = () => {
     return () => {
       cancelled = true;
     };
-  }, [account, fetchCampaigns, fetchCampaignSummary]);
+    // IMPORTANT: include wallet.provider as a dependency so it reruns once provider is ready.
+  }, [account, fetchCampaigns, fetchCampaignSummary, wallet]);
+
 
   // Followers/Following numbers (MVP proxies)
   const followingCount = 0; // later: number of followed creators/coins (watchlist)

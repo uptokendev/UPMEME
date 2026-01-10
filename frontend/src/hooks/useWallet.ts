@@ -35,6 +35,10 @@ export function useWallet(): WalletHook {
     const injected =
       ethereum.providers?.find?.((p: any) => p.isMetaMask) || ethereum;
 
+      // ADD THIS GUARD
+if (!injected || typeof injected.request !== "function") {
+  return;
+}
     const browserProvider = new BrowserProvider(injected);
     setProvider(browserProvider);
 
