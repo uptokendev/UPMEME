@@ -5,32 +5,24 @@ import LaunchTokenArtifact from "@/abi/LaunchToken.json";
 import { useWallet } from "@/hooks/useWallet";
 import { useCallback, useMemo, useRef } from "react";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
+import { getActiveChainId, getFactoryAddress, type SupportedChainId } from "@/lib/chainConfig";
+import { getReadProvider } from "@/lib/readProvider";
 
-// Public RPC endpoints often enforce a max eth_getLogs block-range (commonly 1,000 blocks).
-// Keep our scans bounded and chunked so LaunchIt works reliably even on public endpoints.
-const LOG_CHUNK_SIZE = 900;
-// For UI (holders/volume and timeframe analytics), we only need recent history.
-// 50k blocks is ~1–2 days on BSC (approx), which safely covers 24h windows.
+// Public endpoints can be very sensitive to getLogs volume.
+// Keep scans small + chunked.
+const LOG_CHUNK_SIZE = 700;
+
+// For UI-only rollups (holders/volume), recent history is sufficient.
+// 50k blocks is roughly 1–2 days on BSC (approx).
 const DEFAULT_ACTIVITY_LOOKBACK_BLOCKS = 50_000;
 
-const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS ?? "";
-
-const TARGET_CHAIN_ID = Number(import.meta.env.VITE_TARGET_CHAIN_ID ?? "97");
-const RPC_TESTNET = import.meta.env.VITE_BSC_TESTNET_RPC ?? "";
-const RPC_MAINNET = import.meta.env.VITE_BSC_MAINNET_RPC ?? "";
-
-function getRpcUrlForChain(chainId?: number): string {
-  const cid = chainId ?? TARGET_CHAIN_ID;
-  if (cid === 56) return RPC_MAINNET;
-  return RPC_TESTNET; // default to testnet
-}
-
+// ---------------- ABI helpers ----------------
 const toAbi = (x: any) => (x?.abi ?? x) as ethers.InterfaceAbi;
-
 const FACTORY_ABI = toAbi(LaunchFactoryArtifact);
 const CAMPAIGN_ABI = toAbi(LaunchCampaignArtifact);
 const TOKEN_ABI = toAbi(LaunchTokenArtifact);
 
+// ---------------- Types ----------------
 export type CampaignInfo = {
   id: number;
   campaign: string;
@@ -70,7 +62,6 @@ export type CampaignMetrics = {
   liquidityBps: bigint;
   protocolFeeBps: bigint;
 
-  // Graduation / DEX launch signals (may be missing in older deployments)
   launched?: boolean;
   finalizedAt?: bigint;
 };
@@ -102,8 +93,7 @@ const formatBnbFromWei = (wei: bigint): string => {
     const raw = ethers.formatEther(wei);
     const n = Number(raw);
     if (!Number.isFinite(n)) return `${raw} BNB`;
-    const pretty =
-      n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
+    const pretty = n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
     return `${pretty} BNB`;
   } catch {
     return `${wei.toString()} wei`;
@@ -115,9 +105,70 @@ const formatCount = (n: number): string => {
   return String(n);
 };
 
-// ---------------- Log helpers (chunked) ----------------
+// ---------------- Rate-limit utilities ----------------
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function isRateLimitish(e: any): boolean {
+  const code = e?.code ?? e?.error?.code ?? e?.info?.error?.code;
+  const msg = String(e?.message ?? e?.info?.error?.message ?? "").toLowerCase();
+  return (
+    code === -32005 ||
+    msg.includes("rate limit") ||
+    msg.includes("limit exceeded") ||
+    msg.includes("triggered rate limit")
+  );
+}
+
+async function withBackoff<T>(fn: () => Promise<T>, retries = 3): Promise<T> {
+  let lastErr: any = null;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (e) {
+      lastErr = e;
+      if (!isRateLimitish(e) || i === retries) break;
+      // quadratic-ish backoff
+      await sleep(200 * (i + 1) * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
+// Simple semaphore to avoid multiple parallel log scans nuking public RPCs
+function createSemaphore(max: number) {
+  let inFlight = 0;
+  const queue: Array<() => void> = [];
+
+  const acquire = async () => {
+    if (inFlight < max) {
+      inFlight++;
+      return;
+    }
+    await new Promise<void>((resolve) => queue.push(resolve));
+    inFlight++;
+  };
+
+  const release = () => {
+    inFlight--;
+    const next = queue.shift();
+    if (next) next();
+  };
+
+  return async <T>(fn: () => Promise<T>): Promise<T> => {
+    await acquire();
+    try {
+      return await fn();
+    } finally {
+      release();
+    }
+  };
+}
+
+const runLogScanLimited = createSemaphore(1);
+
+// ---------------- Log helper (chunked + retry + tiny delay) ----------------
 async function getLogsChunked(
-  provider: any,
+  provider: ethers.Provider,
   params: { address: string; topics?: (string | string[] | null)[] },
   fromBlock: number,
   toBlock: number
@@ -125,30 +176,21 @@ async function getLogsChunked(
   const logs: any[] = [];
   for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_SIZE) {
     const end = Math.min(toBlock, start + LOG_CHUNK_SIZE - 1);
-    const chunk = await provider.getLogs({ ...params, fromBlock: start, toBlock: end });
+
+    const chunk = await withBackoff(
+      () => provider.getLogs({ ...params, fromBlock: start, toBlock: end } as any),
+      3
+    );
+
     logs.push(...chunk);
+
+    // tiny pacing helps public endpoints a lot
+    await sleep(80);
   }
   return logs;
 }
 
-async function queryFilterChunked(
-  contract: any,
-  filter: any,
-  fromBlock: number,
-  toBlock: number
-) {
-  const logs: any[] = [];
-  for (let start = fromBlock; start <= toBlock; start += LOG_CHUNK_SIZE) {
-    const end = Math.min(toBlock, start + LOG_CHUNK_SIZE - 1);
-    const chunk = await contract.queryFilter(filter, start, end);
-    logs.push(...chunk);
-  }
-  return logs;
-}
-
-
-// ---------------- MOCK DATA (used when USE_MOCK_DATA === true) ----------------
-
+// ---------------- MOCK DATA ----------------
 const MOCK_CAMPAIGNS: CampaignInfo[] = [
   {
     id: 1,
@@ -166,181 +208,7 @@ const MOCK_CAMPAIGNS: CampaignInfo[] = [
     marketCap: "420.0k BNB",
     timeAgo: "3d",
     dexPairAddress: "0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
-    dexScreenerUrl:
-      "https://dexscreener.com/bsc/0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
-  },
-  {
-    id: 2,
-    campaign: "0x4444444444444444444444444444444444444444",
-    token: "0x5555555555555555555555555555555555555555",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Mock 2 (Curve Test)",
-    symbol: "MOCK2",
-    logoURI: "/placeholder.svg",
-    xAccount: "",
-    website: "",
-    extraLink: "Mock token for curve chart testing.",
-    holders: "0",
-    volume: "0 BNB",
-    marketCap: "12.3k BNB",
-    timeAgo: "now",
-    dexPairAddress: "0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
-    dexScreenerUrl:
-      "https://dexscreener.com/bsc/0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
-  },
-
-  {
-    id: 3,
-    campaign: "0x7777777777777777777777777777777777777701",
-    token: "0x8888888888888888888888888888888888888801",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "PiaiPin",
-    symbol: "PIAIPIN",
-    logoURI:
-      "https://images.unsplash.com/photo-1621504450181-5d356f61d307?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/piaipin",
-    website: "https://example.com/piaipin",
-    extraLink: "Mock campaign for UI design: PiaiPin.",
-    holders: "1",
-    volume: "34 BNB",
-    marketCap: "6.17k BNB",
-    timeAgo: "13h",
-  },
-  {
-    id: 4,
-    campaign: "0x7777777777777777777777777777777777777702",
-    token: "0x8888888888888888888888888888888888888802",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Nova Token",
-    symbol: "NOVA",
-    logoURI:
-      "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/nova",
-    website: "https://example.com/nova",
-    extraLink: "Mock campaign for UI design: Nova Token.",
-    holders: "12",
-    volume: "1.2k BNB",
-    marketCap: "22.8k BNB",
-    timeAgo: "5h",
-  },
-  {
-    id: 5,
-    campaign: "0x7777777777777777777777777777777777777703",
-    token: "0x8888888888888888888888888888888888888803",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Zenith Protocol",
-    symbol: "ZENITH",
-    logoURI:
-      "https://images.unsplash.com/photo-1640826514546-7d2d2845a5b4?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/zenith",
-    website: "https://example.com/zenith",
-    extraLink: "Mock campaign for UI design: Zenith Protocol.",
-    holders: "234",
-    volume: "2.1k BNB",
-    marketCap: "45.8k BNB",
-    timeAgo: "2d",
-  },
-  {
-    id: 6,
-    campaign: "0x7777777777777777777777777777777777777704",
-    token: "0x8888888888888888888888888888888888888804",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Apex Finance",
-    symbol: "APEX",
-    logoURI:
-      "https://images.unsplash.com/photo-1642104704074-907c0698cbd9?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/apex",
-    website: "",
-    extraLink: "Mock campaign for UI design: Apex Finance.",
-    holders: "189",
-    volume: "1.8k BNB",
-    marketCap: "52.3k BNB",
-    timeAgo: "1d",
-  },
-  {
-    id: 7,
-    campaign: "0x7777777777777777777777777777777777777705",
-    token: "0x8888888888888888888888888888888888888805",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Light",
-    symbol: "LIGHT",
-    logoURI:
-      "https://images.unsplash.com/photo-1644361566696-3d442b5b482a?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/light",
-    website: "https://example.com/light",
-    extraLink: "Mock campaign for UI design: Light.",
-    holders: "10.70k",
-    volume: "67.31k BNB",
-    marketCap: "4.08m BNB",
-    timeAgo: "12w",
-  },
-  {
-    id: 8,
-    campaign: "0x7777777777777777777777777777777777777706",
-    token: "0x8888888888888888888888888888888888888806",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Magikarp",
-    symbol: "MAGIK",
-    logoURI:
-      "https://images.unsplash.com/photo-1642543348745-03eb1b69c3c8?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/magik",
-    website: "https://example.com/magik",
-    extraLink: "Mock campaign for UI design: Magikarp.",
-    holders: "952",
-    volume: "3.43k BNB",
-    marketCap: "828.80k BNB",
-    timeAgo: "9w",
-  },
-  {
-    id: 9,
-    campaign: "0x7777777777777777777777777777777777777707",
-    token: "0x8888888888888888888888888888888888888807",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "SvmAcc",
-    symbol: "SVMACC",
-    logoURI:
-      "https://images.unsplash.com/photo-1621504450181-5d356f61d307?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/svmacc",
-    website: "https://example.com/svmacc",
-    extraLink: "Mock campaign for UI design: SvmAcc.",
-    holders: "1.70k",
-    volume: "18.32k BNB",
-    marketCap: "314.28k BNB",
-    timeAgo: "10w",
-  },
-  {
-    id: 10,
-    campaign: "0x7777777777777777777777777777777777777708",
-    token: "0x8888888888888888888888888888888888888808",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Midcurve",
-    symbol: "MID",
-    logoURI:
-      "https://images.unsplash.com/photo-1621504450181-5d356f61d307?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/mid",
-    website: "",
-    extraLink: "Mock campaign for UI design: Midcurve.",
-    holders: "2.07k",
-    volume: "0 BNB",
-    marketCap: "289.04k BNB",
-    timeAgo: "10w",
-  },
-  {
-    id: 11,
-    campaign: "0x7777777777777777777777777777777777777709",
-    token: "0x8888888888888888888888888888888888888809",
-    creator: "0x9999999999999999999999999999999999999999",
-    name: "Daniel",
-    symbol: "DANIEL",
-    logoURI:
-      "https://images.unsplash.com/photo-1639762681485-074b7f938ba0?w=100&h=100&fit=crop",
-    xAccount: "https://x.com/daniel",
-    website: "https://example.com/daniel",
-    extraLink: "Mock campaign for UI design: Daniel.",
-    holders: "2.07k",
-    volume: "57.28k BNB",
-    marketCap: "1.52m BNB",
-    timeAgo: "11w",
+    dexScreenerUrl: "https://dexscreener.com/bsc/0x7dff3085e3fa13ba0d0c4a0f9baccb872ff3351e",
   },
 ];
 
@@ -357,171 +225,46 @@ const MOCK_METRICS_BY_CAMPAIGN: Record<string, CampaignMetrics> = {
     liquidityBps: 5_000n,
     protocolFeeBps: 200n,
   },
-  "0x4444444444444444444444444444444444444444": {
-    sold: 200_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 700_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777701": {
-    sold: 80_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 900_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777702": {
-    sold: 120_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 1_100_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777703": {
-    sold: 1_000_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 1_300_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777704": {
-    sold: 1_000_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 1_500_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777705": {
-    sold: 900_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 1_700_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777706": {
-    sold: 850_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 1_900_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777707": {
-    sold: 1_000_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 2_100_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777708": {
-    sold: 720_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 2_300_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
-  "0x7777777777777777777777777777777777777709": {
-    sold: 950_000n,
-    curveSupply: 1_000_000n,
-    liquiditySupply: 500_000n,
-    creatorReserve: 500_000n,
-    currentPrice: 2_500_000_000_000_000n,
-    basePrice: 500_000_000_000_000n,
-    priceSlope: 10_000_000_000_000n,
-    graduationTarget: 1_000_000n,
-    liquidityBps: 5_000n,
-    protocolFeeBps: 200n,
-  },
 };
 
-
-
+// ---------------- Hook ----------------
 export function useLaunchpad() {
-  const { provider, signer, chainId } = useWallet() as any;
+  const { provider: walletProvider, signer, chainId: walletChainId } = useWallet() as any;
 
-  // Use dedicated RPC for reads/log scanning to avoid MetaMask RPC limits.
+  const activeChainId = useMemo<SupportedChainId>(() => {
+    return getActiveChainId(walletChainId) as SupportedChainId;
+  }, [walletChainId]);
+
+  const factoryAddress = useMemo(() => getFactoryAddress(activeChainId), [activeChainId]);
+
+  // Read provider (public RPC, batching disabled in readProvider.ts)
   const readProvider = useMemo(() => {
-    const url = getRpcUrlForChain(chainId);
-    if (url) return new ethers.JsonRpcProvider(url);
-    return provider ?? null;
-  }, [provider, chainId]);
+    return getReadProvider(activeChainId);
+  }, [activeChainId]);
 
-  // Cache creation blocks so we don’t call eth_getLogs repeatedly
-  const createdBlockCacheRef = useRef<Map<string, number>>(new Map());
+  // Cache “fromBlock” per campaign so we don’t recompute it repeatedly
+  const fromBlockCacheRef = useRef<Map<string, number>>(new Map());
 
-  // ---------- Contract getters (READ vs WRITE) ----------
   const getFactoryRead = useCallback(() => {
-    if (!readProvider || !FACTORY_ADDRESS) return null;
-    return new Contract(FACTORY_ADDRESS, FACTORY_ABI, readProvider) as any;
-  }, [readProvider]);
+    if (!factoryAddress) return null;
+    return new Contract(factoryAddress, FACTORY_ABI, readProvider) as any;
+  }, [factoryAddress, readProvider]);
 
   const getFactoryWrite = useCallback(() => {
-    if (!signer || !FACTORY_ADDRESS) return null;
-    return new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer) as any;
-  }, [signer]);
+    if (!factoryAddress || !signer) return null;
+    return new Contract(factoryAddress, FACTORY_ABI, signer) as any;
+  }, [factoryAddress, signer]);
 
   const getCampaignRead = useCallback(
     (address: string) => {
-      if (!readProvider) return null;
+      if (!address) return null;
       return new Contract(address, CAMPAIGN_ABI, readProvider) as any;
     },
     [readProvider]
   );
 
-  const getCampaignWrite = useCallback(
-    (address: string) => {
-      if (!signer) return null;
-      return new Contract(address, CAMPAIGN_ABI, signer) as any;
-    },
-    [signer]
-  );
+  // --- READS ---
 
-  // ---------- READS ----------
   const fetchCampaigns = useCallback(async (): Promise<CampaignInfo[]> => {
     if (USE_MOCK_DATA) return MOCK_CAMPAIGNS;
 
@@ -534,6 +277,7 @@ export function useLaunchpad() {
     const totalNumber = Number(total);
     const limit = Math.min(totalNumber, 25);
     const offset = Math.max(0, totalNumber - limit);
+
     const page = await factory.getCampaignPage(offset, limit);
 
     return page.map((c: any, idx: number) => ({
@@ -553,19 +297,15 @@ export function useLaunchpad() {
 
   const fetchCampaignMetrics = useCallback(
     async (campaignAddress: string): Promise<CampaignMetrics | null> => {
-      if (USE_MOCK_DATA) {
-        const m =
-          MOCK_METRICS_BY_CAMPAIGN[campaignAddress.toLowerCase()] ??
-          MOCK_METRICS_BY_CAMPAIGN[campaignAddress] ??
-          null;
+      if (!campaignAddress) return null;
 
+      if (USE_MOCK_DATA) {
+        const key = campaignAddress.toLowerCase();
+        const m = MOCK_METRICS_BY_CAMPAIGN[key] ?? MOCK_METRICS_BY_CAMPAIGN[campaignAddress] ?? null;
         if (!m) return null;
 
-        const launched =
-          (m as any).launched ??
-          (m.graduationTarget > 0n && m.sold >= m.graduationTarget);
+        const launched = (m as any).launched ?? (m.graduationTarget > 0n && m.sold >= m.graduationTarget);
         const finalizedAt = (m as any).finalizedAt ?? (launched ? 1n : 0n);
-
         return { ...m, launched, finalizedAt } as CampaignMetrics;
       }
 
@@ -627,48 +367,36 @@ export function useLaunchpad() {
     [getCampaignRead]
   );
 
-  const getCampaignCreatedBlock = useCallback(
-    async (campaignAddress: string): Promise<number | null> => {
-      if (!readProvider) return null;
-
-      const cacheKey = campaignAddress.toLowerCase();
-      const cached = createdBlockCacheRef.current.get(cacheKey);
+  /**
+   * IMPORTANT CHANGE:
+   * We no longer try to find the exact creation block via factory logs.
+   * That was causing rate limits on public endpoints.
+   *
+   * Instead we use a bounded lookback window (cached per campaign).
+   */
+  const getFromBlockForCampaign = useCallback(
+    async (campaignAddress: string): Promise<number> => {
+      const key = campaignAddress.toLowerCase();
+      const cached = fromBlockCacheRef.current.get(key);
       if (typeof cached === "number") return cached;
 
-      const factory = getFactoryRead();
-      if (!factory) return null;
-
-      try {
-        const filter = factory.filters.CampaignCreated(null, campaignAddress, null);
-        const latest = await readProvider.getBlockNumber();
-        const fromBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
-
-        const events = await queryFilterChunked(factory, filter, fromBlock, latest);
-        const ev = events && events.length ? events[0] : null;
-
-        const blockNumber = ev?.blockNumber ?? null;
-        if (typeof blockNumber === "number") {
-          createdBlockCacheRef.current.set(cacheKey, blockNumber);
-        }
-        return blockNumber;
-      } catch (e) {
-        console.warn("[getCampaignCreatedBlock] failed", e);
-        return null;
-      }
+      const latest = await readProvider.getBlockNumber();
+      const fromBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
+      fromBlockCacheRef.current.set(key, fromBlock);
+      return fromBlock;
     },
-    [getFactoryRead, readProvider]
+    [readProvider]
   );
 
   const fetchCampaignActivity = useCallback(
     async (campaignAddress: string): Promise<CampaignActivity | null> => {
       if (USE_MOCK_DATA) return null;
-      if (!readProvider) return null;
+      if (!campaignAddress) return null;
 
       const latest = await readProvider.getBlockNumber();
+      const fromBlock = await getFromBlockForCampaign(campaignAddress);
 
-      const createdBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
-
-      // Phase 2 fast-path: on-chain counters (cheap) if available
+      // Phase 2 fast-path: prefer cheap counters over log scanning
       try {
         const c = getCampaignRead(campaignAddress);
         if (c) {
@@ -683,56 +411,57 @@ export function useLaunchpad() {
             sellers: 0,
             buyVolumeWei: totalBuyVolumeWei as bigint,
             sellVolumeWei: totalSellVolumeWei as bigint,
-            fromBlock: createdBlock,
+            fromBlock,
             toBlock: latest,
           };
         }
       } catch (e) {
-        console.warn(
-          "[fetchCampaignActivity] Phase2 counters not available; falling back to logs",
-          e
-        );
+        console.warn("[fetchCampaignActivity] Counters not available; falling back to logs", e);
       }
 
-      // Fallback: log scanning (still on readProvider, chunked)
-      const iface = new ethers.Interface(CAMPAIGN_ABI);
-      const buyTopic = iface.getEvent("TokensPurchased").topicHash;
-      const sellTopic = iface.getEvent("TokensSold").topicHash;
+      // Fallback: log scanning (limited concurrency + chunked + retry)
+      return runLogScanLimited(async () => {
+        const iface = new ethers.Interface(CAMPAIGN_ABI);
+        const buyTopic = iface.getEvent("TokensPurchased").topicHash;
+        const sellTopic = iface.getEvent("TokensSold").topicHash;
 
-      let buyVolumeWei = 0n;
-      let sellVolumeWei = 0n;
-      const buyers = new Set<string>();
-      const sellers = new Set<string>();
+        let buyVolumeWei = 0n;
+        let sellVolumeWei = 0n;
+        const buyers = new Set<string>();
+        const sellers = new Set<string>();
 
-      try {
-        const buyLogs = await getLogsChunked(
-          readProvider,
-          { address: campaignAddress, topics: [buyTopic] },
-          createdBlock,
-          latest
-        );
+        try {
+          const buyLogs = await getLogsChunked(
+            readProvider,
+            { address: campaignAddress, topics: [buyTopic] },
+            fromBlock,
+            latest
+          );
 
-        for (const log of buyLogs) {
-          const parsed = iface.parseLog(log);
-          const buyer = String(parsed.args.buyer).toLowerCase();
-          const cost = parsed.args.cost as bigint;
-          buyers.add(buyer);
-          buyVolumeWei += cost;
-        }
+          for (const log of buyLogs) {
+            const parsed = iface.parseLog(log);
+            const buyer = String(parsed.args.buyer).toLowerCase();
+            const cost = parsed.args.cost as bigint;
+            buyers.add(buyer);
+            buyVolumeWei += cost;
+          }
 
-        const sellLogs = await getLogsChunked(
-          readProvider,
-          { address: campaignAddress, topics: [sellTopic] },
-          createdBlock,
-          latest
-        );
+          const sellLogs = await getLogsChunked(
+            readProvider,
+            { address: campaignAddress, topics: [sellTopic] },
+            fromBlock,
+            latest
+          );
 
-        for (const log of sellLogs) {
-          const parsed = iface.parseLog(log);
-          const seller = String(parsed.args.seller).toLowerCase();
-          const payout = parsed.args.payout as bigint;
-          sellers.add(seller);
-          sellVolumeWei += payout;
+          for (const log of sellLogs) {
+            const parsed = iface.parseLog(log);
+            const seller = String(parsed.args.seller).toLowerCase();
+            const payout = parsed.args.payout as bigint;
+            sellers.add(seller);
+            sellVolumeWei += payout;
+          }
+        } catch (e) {
+          console.warn("[fetchCampaignActivity] log scan failed", e);
         }
 
         return {
@@ -740,22 +469,12 @@ export function useLaunchpad() {
           sellers: sellers.size,
           buyVolumeWei,
           sellVolumeWei,
-          fromBlock: createdBlock,
+          fromBlock,
           toBlock: latest,
         };
-      } catch (e) {
-        console.warn("[fetchCampaignActivity] failed", e);
-        return {
-          buyers: buyers.size,
-          sellers: sellers.size,
-          buyVolumeWei,
-          sellVolumeWei,
-          fromBlock: createdBlock,
-          toBlock: latest,
-        };
-      }
+      });
     },
-    [getCampaignCreatedBlock, getCampaignRead, readProvider]
+    [getCampaignRead, getFromBlockForCampaign, readProvider]
   );
 
   const fetchCampaignSummary = useCallback(
@@ -774,6 +493,7 @@ export function useLaunchpad() {
         return { campaign, metrics, stats: { holders, volume, marketCap } };
       }
 
+      // Activity rollups (safe + limited)
       try {
         const activity = await fetchCampaignActivity(campaign.campaign);
         if (activity) {
@@ -784,9 +504,9 @@ export function useLaunchpad() {
         console.warn("[fetchCampaignSummary] activity fetch failed", e);
       }
 
-      // Market cap: currentPrice * totalSupply
+      // Market cap (derived): currentPrice * totalSupply
       try {
-        if (readProvider && metrics) {
+        if (metrics) {
           const token = new Contract(campaign.token, TOKEN_ABI, readProvider) as any;
           const totalSupply: bigint = await token.totalSupply();
           const mcWei = (metrics.currentPrice * totalSupply) / 10n ** 18n;
@@ -809,7 +529,8 @@ export function useLaunchpad() {
     [fetchCampaignSummary]
   );
 
-  // ---------- WRITES ----------
+  // --- WRITES ---
+
   const createCampaign = useCallback(
     async (params: {
       name: string;
@@ -825,7 +546,7 @@ export function useLaunchpad() {
     }) => {
       if (USE_MOCK_DATA) {
         console.log("[MOCK] createCampaign", params);
-        await new Promise((res) => setTimeout(res, 500));
+        await sleep(300);
         return { status: 1 };
       }
 
@@ -854,51 +575,53 @@ export function useLaunchpad() {
     async (campaignAddress: string, amountWei: bigint, maxCostWei: bigint) => {
       if (USE_MOCK_DATA) {
         console.log("[MOCK] buyTokens", { campaignAddress, amountWei, maxCostWei });
-        await new Promise((res) => setTimeout(res, 500));
+        await sleep(300);
         return { status: 1 };
       }
 
-      const writer = getCampaignWrite(campaignAddress);
-      if (!writer) throw new Error("Wallet not connected");
+      if (!signer) throw new Error("Wallet not connected");
+      const campaign = new Contract(campaignAddress, CAMPAIGN_ABI, signer) as any;
 
-      const tx = await writer.buyExactTokens(amountWei, maxCostWei, { value: maxCostWei });
+      const tx = await campaign.buyExactTokens(amountWei, maxCostWei, {
+        value: maxCostWei,
+      });
       return tx.wait();
     },
-    [getCampaignWrite]
+    [signer]
   );
 
   const sellTokens = useCallback(
     async (campaignAddress: string, amountWei: bigint, minAmountWei: bigint) => {
       if (USE_MOCK_DATA) {
         console.log("[MOCK] sellTokens", { campaignAddress, amountWei, minAmountWei });
-        await new Promise((res) => setTimeout(res, 500));
+        await sleep(300);
         return { status: 1 };
       }
 
-      const writer = getCampaignWrite(campaignAddress);
-      if (!writer) throw new Error("Wallet not connected");
+      if (!signer) throw new Error("Wallet not connected");
+      const campaign = new Contract(campaignAddress, CAMPAIGN_ABI, signer) as any;
 
-      const tx = await writer.sellExactTokens(amountWei, minAmountWei);
+      const tx = await campaign.sellExactTokens(amountWei, minAmountWei);
       return tx.wait();
     },
-    [getCampaignWrite]
+    [signer]
   );
 
   const finalizeCampaign = useCallback(
     async (campaignAddress: string, minTokens: bigint, minBnb: bigint) => {
       if (USE_MOCK_DATA) {
         console.log("[MOCK] finalizeCampaign", { campaignAddress, minTokens, minBnb });
-        await new Promise((res) => setTimeout(res, 500));
+        await sleep(300);
         return { status: 1 };
       }
 
-      const writer = getCampaignWrite(campaignAddress);
-      if (!writer) throw new Error("Wallet not connected");
+      if (!signer) throw new Error("Wallet not connected");
+      const campaign = new Contract(campaignAddress, CAMPAIGN_ABI, signer) as any;
 
-      const tx = await writer.finalize(minTokens, minBnb);
+      const tx = await campaign.finalize(minTokens, minBnb);
       return tx.wait();
     },
-    [getCampaignWrite]
+    [signer]
   );
 
   return {
@@ -911,6 +634,10 @@ export function useLaunchpad() {
     buyTokens,
     sellTokens,
     finalizeCampaign,
+
+    // keeping these around in case you need them later
+    walletProvider,
+    activeChainId,
+    factoryAddress,
   };
 }
-

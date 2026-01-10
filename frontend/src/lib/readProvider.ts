@@ -1,32 +1,43 @@
-// src/lib/readProvider.ts
-// Read-only provider cache (JsonRpcProvider) to avoid MetaMask RPC limits / eth_newFilter throttling.
-//
-// IMPORTANT:
-// - Use this for READS (getLogs, call, balance, etc).
-// - Use wallet.signer for WRITES.
-
 import { ethers } from "ethers";
-import { getPublicRpcUrl, type SupportedChainId } from "@/lib/chainConfig";
+import { getPublicRpcUrl, type SupportedChainId } from "./chainConfig";
 
-type ProviderCache = Record<string, ethers.JsonRpcProvider>;
+// Cache 1 provider per chain id
+const providerCache = new Map<number, ethers.JsonRpcProvider>();
 
-const getCache = (): ProviderCache => {
-  const g = globalThis as any;
-  if (!g.__UPMEME_read_providers) g.__UPMEME_read_providers = {};
-  return g.__UPMEME_read_providers as ProviderCache;
-};
+function networkName(chainId: number) {
+  return chainId === 56 ? "bsc" : "bsc-testnet";
+}
 
+/**
+ * Read-only JSON-RPC provider for public data (logs, reads).
+ *
+ * IMPORTANT:
+ * - We DISABLE batching (batchMaxCount: 1) because public BSC endpoints
+ *   often rate-limit when getLogs requests are batched.
+ * - We set staticNetwork to avoid extra "detectNetwork" chatter.
+ */
 export function getReadProvider(chainId: SupportedChainId): ethers.JsonRpcProvider {
-  const cache = getCache();
-  const key = String(chainId);
-  if (cache[key]) return cache[key];
+  const cached = providerCache.get(chainId);
+  if (cached) return cached;
 
   const url = getPublicRpcUrl(chainId);
-  const p = new ethers.JsonRpcProvider(url, chainId, {
-  staticNetwork: true,
-  batchMaxCount: 1,
-  batchStallTime: 0,
-});
-  cache[key] = p;
-  return p;
+  if (!url) {
+    throw new Error(`Missing public RPC url for chainId=${chainId}`);
+  }
+
+  const network = { chainId, name: networkName(chainId) } as any;
+
+  const provider = new ethers.JsonRpcProvider(
+    url,
+    network,
+    {
+      staticNetwork: true,
+      // Disable batching to reduce "-32005 rate limit" issues
+      batchMaxCount: 1,
+      batchStallTime: 0,
+    } as any
+  );
+
+  providerCache.set(chainId, provider);
+  return provider;
 }
