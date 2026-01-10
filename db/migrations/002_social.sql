@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS auth_nonces (
   nonce        TEXT NOT NULL,
   expires_at   TIMESTAMPTZ NOT NULL,
 
+  -- One-time use; both /api/auth/nonce and /api/* endpoints expect this column.
+  used_at      TIMESTAMPTZ,
+
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
 
   PRIMARY KEY (chain_id, address),
