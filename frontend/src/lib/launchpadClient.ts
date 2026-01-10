@@ -3,7 +3,7 @@ import LaunchFactoryArtifact from "@/abi/LaunchFactory.json";
 import LaunchCampaignArtifact from "@/abi/LaunchCampaign.json";
 import LaunchTokenArtifact from "@/abi/LaunchToken.json";
 import { useWallet } from "@/hooks/useWallet";
-import { useCallback } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
 
 // Public RPC endpoints often enforce a max eth_getLogs block-range (commonly 1,000 blocks).
@@ -14,6 +14,16 @@ const LOG_CHUNK_SIZE = 900;
 const DEFAULT_ACTIVITY_LOOKBACK_BLOCKS = 50_000;
 
 const FACTORY_ADDRESS = import.meta.env.VITE_FACTORY_ADDRESS ?? "";
+
+const TARGET_CHAIN_ID = Number(import.meta.env.VITE_TARGET_CHAIN_ID ?? "97");
+const RPC_TESTNET = import.meta.env.VITE_BSC_TESTNET_RPC ?? "";
+const RPC_MAINNET = import.meta.env.VITE_BSC_MAINNET_RPC ?? "";
+
+function getRpcUrlForChain(chainId?: number): string {
+  const cid = chainId ?? TARGET_CHAIN_ID;
+  if (cid === 56) return RPC_MAINNET;
+  return RPC_TESTNET; // default to testnet
+}
 
 const toAbi = (x: any) => (x?.abi ?? x) as ethers.InterfaceAbi;
 
@@ -472,38 +482,50 @@ const MOCK_METRICS_BY_CAMPAIGN: Record<string, CampaignMetrics> = {
 
 
 export function useLaunchpad() {
-  const { provider, signer } = useWallet();
+  const { provider, signer, chainId } = useWallet() as any;
 
-  const getFactory = useCallback(() => {
-    if (!provider || !FACTORY_ADDRESS) return null;
-    return new Contract(
-      FACTORY_ADDRESS,
-      FACTORY_ABI,
-      signer ?? provider
-    ) as any;
-  }, [provider, signer]);
+  // Use dedicated RPC for reads/log scanning to avoid MetaMask RPC limits.
+  const readProvider = useMemo(() => {
+    const url = getRpcUrlForChain(chainId);
+    if (url) return new ethers.JsonRpcProvider(url);
+    return provider ?? null;
+  }, [provider, chainId]);
 
-  const getCampaign = useCallback(
+  // Cache creation blocks so we don’t call eth_getLogs repeatedly
+  const createdBlockCacheRef = useRef<Map<string, number>>(new Map());
+
+  // ---------- Contract getters (READ vs WRITE) ----------
+  const getFactoryRead = useCallback(() => {
+    if (!readProvider || !FACTORY_ADDRESS) return null;
+    return new Contract(FACTORY_ADDRESS, FACTORY_ABI, readProvider) as any;
+  }, [readProvider]);
+
+  const getFactoryWrite = useCallback(() => {
+    if (!signer || !FACTORY_ADDRESS) return null;
+    return new Contract(FACTORY_ADDRESS, FACTORY_ABI, signer) as any;
+  }, [signer]);
+
+  const getCampaignRead = useCallback(
     (address: string) => {
-      if (!provider) return null;
-      return new Contract(
-        address,
-        CAMPAIGN_ABI,
-        signer ?? provider
-      ) as any;
+      if (!readProvider) return null;
+      return new Contract(address, CAMPAIGN_ABI, readProvider) as any;
     },
-    [provider, signer]
+    [readProvider]
   );
 
-  // --- READS ---
+  const getCampaignWrite = useCallback(
+    (address: string) => {
+      if (!signer) return null;
+      return new Contract(address, CAMPAIGN_ABI, signer) as any;
+    },
+    [signer]
+  );
 
-    const fetchCampaigns = useCallback(async (): Promise<CampaignInfo[]> => {
-    // 🔹 MOCK MODE: just return mock data
-    if (USE_MOCK_DATA) {
-      return MOCK_CAMPAIGNS;
-    }
+  // ---------- READS ----------
+  const fetchCampaigns = useCallback(async (): Promise<CampaignInfo[]> => {
+    if (USE_MOCK_DATA) return MOCK_CAMPAIGNS;
 
-    const factory = getFactory();
+    const factory = getFactoryRead();
     if (!factory) return [];
 
     const total: bigint = await factory.campaignsCount();
@@ -527,12 +549,10 @@ export function useLaunchpad() {
       extraLink: c.extraLink,
       createdAt: c.createdAt ? Number(c.createdAt) : undefined,
     })) as CampaignInfo[];
-  }, [getFactory]);
+  }, [getFactoryRead]);
 
-
-    const fetchCampaignMetrics = useCallback(
+  const fetchCampaignMetrics = useCallback(
     async (campaignAddress: string): Promise<CampaignMetrics | null> => {
-      // 🔹 MOCK MODE
       if (USE_MOCK_DATA) {
         const m =
           MOCK_METRICS_BY_CAMPAIGN[campaignAddress.toLowerCase()] ??
@@ -541,15 +561,15 @@ export function useLaunchpad() {
 
         if (!m) return null;
 
-        // In mock mode, infer "launched" once sold reaches the graduation target
-        // unless explicitly set in the mock payload.
-        const launched = (m as any).launched ?? (m.graduationTarget > 0n && m.sold >= m.graduationTarget);
+        const launched =
+          (m as any).launched ??
+          (m.graduationTarget > 0n && m.sold >= m.graduationTarget);
         const finalizedAt = (m as any).finalizedAt ?? (launched ? 1n : 0n);
 
         return { ...m, launched, finalizedAt } as CampaignMetrics;
       }
 
-      const campaign = getCampaign(campaignAddress);
+      const campaign = getCampaignRead(campaignAddress);
       if (!campaign) return null;
 
       const [
@@ -576,7 +596,6 @@ export function useLaunchpad() {
         campaign.currentPrice(),
       ]);
 
-      // Graduation / DEX launch flags (not present in all deployments)
       let launched = false;
       let finalizedAt = 0n;
       try {
@@ -605,58 +624,64 @@ export function useLaunchpad() {
         finalizedAt,
       };
     },
-    [getCampaign]
+    [getCampaignRead]
   );
 
   const getCampaignCreatedBlock = useCallback(
     async (campaignAddress: string): Promise<number | null> => {
-      if (!provider) return null;
+      if (!readProvider) return null;
 
-      const factory = getFactory();
+      const cacheKey = campaignAddress.toLowerCase();
+      const cached = createdBlockCacheRef.current.get(cacheKey);
+      if (typeof cached === "number") return cached;
+
+      const factory = getFactoryRead();
       if (!factory) return null;
 
       try {
         const filter = factory.filters.CampaignCreated(null, campaignAddress, null);
-        const latest = await provider.getBlockNumber();
+        const latest = await readProvider.getBlockNumber();
         const fromBlock = Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
+
         const events = await queryFilterChunked(factory, filter, fromBlock, latest);
         const ev = events && events.length ? events[0] : null;
-        return ev?.blockNumber ?? null;
+
+        const blockNumber = ev?.blockNumber ?? null;
+        if (typeof blockNumber === "number") {
+          createdBlockCacheRef.current.set(cacheKey, blockNumber);
+        }
+        return blockNumber;
       } catch (e) {
         console.warn("[getCampaignCreatedBlock] failed", e);
         return null;
       }
     },
-    [getFactory, provider]
+    [getFactoryRead, readProvider]
   );
 
   const fetchCampaignActivity = useCallback(
     async (campaignAddress: string): Promise<CampaignActivity | null> => {
       if (USE_MOCK_DATA) return null;
-      if (!provider) return null;
+      if (!readProvider) return null;
 
-      const latest = await provider.getBlockNumber();
-      // Prefer the actual creation block when we can find it, otherwise
-      // fall back to a bounded lookback window. This prevents huge log scans
-      // and avoids provider max-range errors.
+      const latest = await readProvider.getBlockNumber();
+
       const createdBlock =
         (await getCampaignCreatedBlock(campaignAddress)) ??
         Math.max(0, latest - DEFAULT_ACTIVITY_LOOKBACK_BLOCKS);
 
-      // Phase 2 fast-path: prefer on-chain counters over log scanning.
+      // Phase 2 fast-path: on-chain counters (cheap) if available
       try {
-        const c = getCampaign(campaignAddress);
+        const c = getCampaignRead(campaignAddress);
         if (c) {
-          const [buyersCount, totalBuyVolumeWei, totalSellVolumeWei] =
-            await Promise.all([
-              c.buyersCount(),
-              c.totalBuyVolumeWei(),
-              c.totalSellVolumeWei(),
-            ]);
+          const [buyersCount, totalBuyVolumeWei, totalSellVolumeWei] = await Promise.all([
+            c.buyersCount(),
+            c.totalBuyVolumeWei(),
+            c.totalSellVolumeWei(),
+          ]);
 
           return {
             buyers: Number(buyersCount),
-            // sellersCount is not available yet; keep 0 to avoid breaking UI.
             sellers: 0,
             buyVolumeWei: totalBuyVolumeWei as bigint,
             sellVolumeWei: totalSellVolumeWei as bigint,
@@ -665,13 +690,13 @@ export function useLaunchpad() {
           };
         }
       } catch (e) {
-        // Pre-phase2 deployments (or older ABIs): fall back to log scanning.
         console.warn(
           "[fetchCampaignActivity] Phase2 counters not available; falling back to logs",
           e
         );
       }
 
+      // Fallback: log scanning (still on readProvider, chunked)
       const iface = new ethers.Interface(CAMPAIGN_ABI);
       const buyTopic = iface.getEvent("TokensPurchased").topicHash;
       const sellTopic = iface.getEvent("TokensSold").topicHash;
@@ -683,7 +708,7 @@ export function useLaunchpad() {
 
       try {
         const buyLogs = await getLogsChunked(
-          provider,
+          readProvider,
           { address: campaignAddress, topics: [buyTopic] },
           createdBlock,
           latest
@@ -698,7 +723,7 @@ export function useLaunchpad() {
         }
 
         const sellLogs = await getLogsChunked(
-          provider,
+          readProvider,
           { address: campaignAddress, topics: [sellTopic] },
           createdBlock,
           latest
@@ -732,35 +757,28 @@ export function useLaunchpad() {
         };
       }
     },
-    [provider, getCampaignCreatedBlock]
+    [getCampaignCreatedBlock, getCampaignRead, readProvider]
   );
 
   const fetchCampaignSummary = useCallback(
     async (campaign: CampaignInfo): Promise<CampaignSummary> => {
-      // Always fetch metrics once so callers can reuse them.
       const metrics = await fetchCampaignMetrics(campaign.campaign);
 
-      // Defaults
       let holders = "—";
       let volume = "—";
       let marketCap = "—";
 
-      // Mock mode: campaigns already carry the formatted UI values
       if (USE_MOCK_DATA) {
         const anyC = campaign as any;
         holders = anyC.holders ?? "0";
         volume = anyC.volume ?? "0 BNB";
         marketCap = anyC.marketCap ?? "0 BNB";
-
         return { campaign, metrics, stats: { holders, volume, marketCap } };
       }
 
-      // Live mode: prefer cheap counters (phase2) and fall back to log scanning.
       try {
         const activity = await fetchCampaignActivity(campaign.campaign);
         if (activity) {
-          // NOTE: we treat "holders" as the unique buyer count (buyersCount)
-          // for consistency with the carousel.
           holders = formatCount(activity.buyers);
           volume = formatBnbFromWei(activity.buyVolumeWei + activity.sellVolumeWei);
         }
@@ -768,12 +786,11 @@ export function useLaunchpad() {
         console.warn("[fetchCampaignSummary] activity fetch failed", e);
       }
 
-      // Market cap (derived): currentPrice * totalSupply
+      // Market cap: currentPrice * totalSupply
       try {
-        if (provider && metrics) {
-          const token = new Contract(campaign.token, TOKEN_ABI, provider) as any;
+        if (readProvider && metrics) {
+          const token = new Contract(campaign.token, TOKEN_ABI, readProvider) as any;
           const totalSupply: bigint = await token.totalSupply();
-
           const mcWei = (metrics.currentPrice * totalSupply) / 10n ** 18n;
           marketCap = formatBnbFromWei(mcWei);
         }
@@ -783,7 +800,7 @@ export function useLaunchpad() {
 
       return { campaign, metrics, stats: { holders, volume, marketCap } };
     },
-    [fetchCampaignActivity, fetchCampaignMetrics, provider]
+    [fetchCampaignActivity, fetchCampaignMetrics, readProvider]
   );
 
   const fetchCampaignCardStats = useCallback(
@@ -794,11 +811,8 @@ export function useLaunchpad() {
     [fetchCampaignSummary]
   );
 
-
-
-  // --- WRITES ---
-
-    const createCampaign = useCallback(
+  // ---------- WRITES ----------
+  const createCampaign = useCallback(
     async (params: {
       name: string;
       symbol: string;
@@ -813,15 +827,13 @@ export function useLaunchpad() {
     }) => {
       if (USE_MOCK_DATA) {
         console.log("[MOCK] createCampaign", params);
-        // Option: simulate a short delay
         await new Promise((res) => setTimeout(res, 500));
-        return { status: 1 }; // minimal "success" shape
+        return { status: 1 };
       }
 
-            const factory = getFactory();
-      if (!factory || !signer) throw new Error("Wallet not connected");
+      const writer = getFactoryWrite();
+      if (!writer) throw new Error("Wallet not connected");
 
-      const writer = factory.connect(signer) as any;
       const tx = await writer.createCampaign({
         name: params.name,
         symbol: params.symbol,
@@ -837,7 +849,7 @@ export function useLaunchpad() {
 
       return tx.wait();
     },
-    [getFactory, signer]
+    [getFactoryWrite]
   );
 
   const buyTokens = useCallback(
@@ -848,16 +860,13 @@ export function useLaunchpad() {
         return { status: 1 };
       }
 
-      const campaign = getCampaign(campaignAddress);
-      if (!campaign || !signer) throw new Error("Wallet not connected");
+      const writer = getCampaignWrite(campaignAddress);
+      if (!writer) throw new Error("Wallet not connected");
 
-      const writer = campaign.connect(signer) as any;
-      const tx = await writer.buyExactTokens(amountWei, maxCostWei, {
-        value: maxCostWei,
-      });
+      const tx = await writer.buyExactTokens(amountWei, maxCostWei, { value: maxCostWei });
       return tx.wait();
     },
-    [getCampaign, signer]
+    [getCampaignWrite]
   );
 
   const sellTokens = useCallback(
@@ -868,14 +877,13 @@ export function useLaunchpad() {
         return { status: 1 };
       }
 
-      const campaign = getCampaign(campaignAddress);
-      if (!campaign || !signer) throw new Error("Wallet not connected");
+      const writer = getCampaignWrite(campaignAddress);
+      if (!writer) throw new Error("Wallet not connected");
 
-      const writer = campaign.connect(signer) as any;
       const tx = await writer.sellExactTokens(amountWei, minAmountWei);
       return tx.wait();
     },
-    [getCampaign, signer]
+    [getCampaignWrite]
   );
 
   const finalizeCampaign = useCallback(
@@ -886,16 +894,14 @@ export function useLaunchpad() {
         return { status: 1 };
       }
 
-      const campaign = getCampaign(campaignAddress);
-      if (!campaign || !signer) throw new Error("Wallet not connected");
+      const writer = getCampaignWrite(campaignAddress);
+      if (!writer) throw new Error("Wallet not connected");
 
-      const writer = campaign.connect(signer) as any;
       const tx = await writer.finalize(minTokens, minBnb);
       return tx.wait();
     },
-    [getCampaign, signer]
+    [getCampaignWrite]
   );
-
 
   return {
     fetchCampaigns,
@@ -909,3 +915,4 @@ export function useLaunchpad() {
     finalizeCampaign,
   };
 }
+
