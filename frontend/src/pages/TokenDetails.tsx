@@ -60,10 +60,16 @@ const TokenDetails = () => {
     "5m" | "1h" | "4h" | "24h"
   >("24h");
 
-  const [mcDenom, setMcDenom] = useState<"BNB" | "USD">(() => {
+  const [displayDenom, setDisplayDenom] = useState<"USD" | "BNB">(() => {
     try {
-      const saved = localStorage.getItem("launchit:mcDenom");
-      return saved === "BNB" || saved === "USD" ? saved : "USD";
+      const saved = localStorage.getItem("launchit:displayDenom");
+      if (saved === "USD" || saved === "BNB") return saved;
+
+      // Backward-compat: older builds stored this under a market-cap specific key.
+      const legacy = localStorage.getItem("launchit:mcDenom");
+      if (legacy === "USD" || legacy === "BNB") return legacy;
+
+      return "USD";
     } catch {
       return "USD";
     }
@@ -73,11 +79,11 @@ const TokenDetails = () => {
 
   useEffect(() => {
     try {
-      localStorage.setItem("launchit:mcDenom", mcDenom);
+      localStorage.setItem("launchit:displayDenom", displayDenom);
     } catch {
       // ignore
     }
-  }, [mcDenom]);
+  }, [displayDenom]);
 
   // Launchpad hooks + state for the on-chain data
   const { fetchCampaigns, fetchCampaignSummary, fetchCampaignMetrics, buyTokens, sellTokens } = useLaunchpad();
@@ -415,13 +421,13 @@ const TokenDetails = () => {
     };
   }, [campaign, curveReserveWei, metrics, summary, timeframeTiles]);
   const { price: bnbUsdPrice, loading: bnbUsdLoading } = useBnbUsdPrice(
-    mcDenom === "USD"
+    displayDenom === "USD"
   );
 
   const marketCapDisplay = useMemo(() => {
     const bnbLabel = tokenData.marketCap;
 
-    if (mcDenom === "BNB") return bnbLabel;
+    if (displayDenom === "BNB") return bnbLabel;
 
     const mcBnb = parseBnbLabel(bnbLabel);
     if (mcBnb == null) return "—";
@@ -429,7 +435,34 @@ const TokenDetails = () => {
     if (!bnbUsdPrice) return bnbUsdLoading ? "…" : "—";
 
     return formatCompactUsd(mcBnb * bnbUsdPrice);
-  }, [mcDenom, tokenData.marketCap, bnbUsdPrice, bnbUsdLoading]);
+  }, [displayDenom, tokenData.marketCap, bnbUsdPrice, bnbUsdLoading]);
+
+  const priceDisplay = useMemo(() => {
+    const bnbLabel = tokenData.price;
+
+    if (displayDenom === "BNB") return bnbLabel;
+
+    const priceBnb = parseBnbLabel(bnbLabel);
+    if (priceBnb == null) return "—";
+
+    if (!bnbUsdPrice) return bnbUsdLoading ? "…" : "—";
+
+    return formatCompactUsd(priceBnb * bnbUsdPrice);
+  }, [displayDenom, tokenData.price, bnbUsdPrice, bnbUsdLoading]);
+
+  const volumeDisplay = useMemo(() => {
+    const bnbLabel = tokenData.metrics[selectedTimeframe]?.volume ?? "—";
+
+    if (displayDenom === "BNB") return bnbLabel;
+
+    const volBnb = parseBnbLabel(bnbLabel);
+    if (volBnb == null) return "—";
+
+    if (!bnbUsdPrice) return bnbUsdLoading ? "…" : "—";
+
+    return formatCompactUsd(volBnb * bnbUsdPrice);
+  }, [displayDenom, tokenData.metrics, selectedTimeframe, bnbUsdPrice, bnbUsdLoading]);
+
 
 
 
@@ -706,7 +739,21 @@ const TokenDetails = () => {
 
     // LIVE: best-effort liquidity (BNB-equivalent) from DexScreener.
     return formatBnb(dexLiquidityBnb ?? null);
-  })();
+  })()
+
+  const liquidityDisplay = useMemo(() => {
+    const bnbLabel = liquidityValue;
+
+    if (displayDenom === "BNB") return bnbLabel;
+
+    const liqBnb = parseBnbLabel(bnbLabel);
+    if (liqBnb == null) return "—";
+
+    if (!bnbUsdPrice) return bnbUsdLoading ? "…" : "—";
+
+    return formatCompactUsd(liqBnb * bnbUsdPrice);
+  }, [displayDenom, liquidityValue, bnbUsdPrice, bnbUsdLoading]);
+;
 
   const chartTitle = isDexStage ? "DEX chart" : "Bonding curve";
   const stagePill = isDexStage ? "Graduated" : "Bonding";
@@ -1079,17 +1126,17 @@ const TokenDetails = () => {
                   <div className="flex items-center gap-1 rounded-md bg-muted/40 p-0.5">
                     <Button
                       size="sm"
-                      variant={mcDenom === "USD" ? "secondary" : "ghost"}
+                      variant={displayDenom === "USD" ? "secondary" : "ghost"}
                       className="h-6 px-2"
-                      onClick={() => setMcDenom("USD")}
+                      onClick={() => setDisplayDenom("USD")}
                     >
                       USD
                     </Button>
                     <Button
                       size="sm"
-                      variant={mcDenom === "BNB" ? "secondary" : "ghost"}
+                      variant={displayDenom === "BNB" ? "secondary" : "ghost"}
                       className="h-6 px-2"
-                      onClick={() => setMcDenom("BNB")}
+                      onClick={() => setDisplayDenom("BNB")}
                     >
                       BNB
                     </Button>
@@ -1140,12 +1187,14 @@ const TokenDetails = () => {
                                   className={`ml-2 font-mono ${
                                     ch == null
                                       ? "text-muted-foreground"
+                                      : ch > 0
+                                      ? "text-green-500"
                                       : ch < 0
                                       ? "text-red-500"
-                                      : "text-green-500"
+                                      : "text-muted-foreground"
                                   }`}
                                 >
-                                  {ch == null ? "—" : `${ch > 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(2)}%`}
+                                  {ch == null ? "—" : `${ch > 0 ? "▲" : ch < 0 ? "▼" : "•"} ${Math.abs(ch).toFixed(2)}%`}
                                 </span>
                               );
                             })()}
@@ -1157,16 +1206,16 @@ const TokenDetails = () => {
                       <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/30">
                         <div className="text-xs">
                           <span className="text-muted-foreground block">Price</span>
-                          <span className="font-mono text-foreground">{tokenData.price}</span>
+                          <span className="font-mono text-foreground">{priceDisplay}</span>
                         </div>
                         <div className="text-xs">
                           <span className="text-muted-foreground block">{liquidityLabel}</span>
-                          <span className="font-mono text-foreground">{liquidityValue}</span>
+                          <span className="font-mono text-foreground">{liquidityDisplay}</span>
                         </div>
                         <div className="text-xs">
                           <span className="text-muted-foreground block">Volume</span>
                           <span className="font-mono text-foreground">
-                            {tokenData.metrics[selectedTimeframe].volume}
+                            {volumeDisplay}
                           </span>
                         </div>
                         <div className="text-xs">
@@ -1209,7 +1258,7 @@ const TokenDetails = () => {
                                 : "text-green-500"
                             }`}
                           >
-                            {ch == null ? "—" : `${ch > 0 ? "▲" : "▼"} ${Math.abs(ch).toFixed(2)}%`}
+                            {ch == null ? "—" : `${ch > 0 ? "▲" : ch < 0 ? "▼" : "•"} ${Math.abs(ch).toFixed(2)}%`}
                           </span>
                         );
                       })()}
@@ -1221,16 +1270,16 @@ const TokenDetails = () => {
                 <div className="flex items-center justify-between gap-4">
                   <div className="text-xs">
                     <span className="text-muted-foreground">Price</span>
-                    <span className="ml-2 font-mono text-foreground">{tokenData.price}</span>
+                    <span className="ml-2 font-mono text-foreground">{priceDisplay}</span>
                   </div>
                   <div className="text-xs">
                     <span className="text-muted-foreground">{liquidityLabel}</span>
-                    <span className="ml-2 font-mono text-foreground">{liquidityValue}</span>
+                    <span className="ml-2 font-mono text-foreground">{liquidityDisplay}</span>
                   </div>
                   <div className="text-xs">
                     <span className="text-muted-foreground">Volume</span>
                     <span className="ml-2 font-mono text-foreground">
-                      {tokenData.metrics[selectedTimeframe].volume}
+                      {volumeDisplay}
                     </span>
                   </div>
                   <div className="text-xs">
