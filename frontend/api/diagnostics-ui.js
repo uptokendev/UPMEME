@@ -283,28 +283,112 @@ export default async function handler(req, res) {
 function setAivenRows(j) {
   const tbody = document.getElementById("aivenRows");
   const a = j?.checks?.aiven_postgres;
+  const env = j?.env_presence || {};
+  const host = j?.redacted?.DATABASE_URL_host || "—";
 
   const rows = [];
 
+  // --- Section: Configuration ---
+  rows.push([
+    "<span class='mono'>Configuration</span>",
+    badge("info", "Section"),
+    "Validates DB env presence and CA source selection used for TLS verification."
+  ]);
+
+  rows.push([
+    "DATABASE_URL",
+    env.DATABASE_URL ? badge("ok", "Present") : badge("bad", "Missing"),
+    env.DATABASE_URL ? ("host: <span class='mono'>" + host + "</span>") : "Add DATABASE_URL on Vercel (Production)."
+  ]);
+
+  // CA sources: prefer env CA; fallback to repo CA file
+  const hasEnvCa = !!env.PG_CA_CERT_B64 || !!env.PG_CA_CERT;
+  const repoCa = env.repo_aiven_ca_pem?.exists;
+
+  rows.push([
+    "CA source",
+    (hasEnvCa || repoCa) ? badge("ok", "Available") : badge("bad", "Missing"),
+    hasEnvCa
+      ? "Using CA from env (<span class='mono'>PG_CA_CERT_B64</span> / <span class='mono'>PG_CA_CERT</span>)."
+      : repoCa
+      ? ("Using repo CA file (<span class='mono'>aiven-ca.pem</span>, bytes: <span class='mono'>" + (env.repo_aiven_ca_pem?.bytes ?? "—") + "</span>).")
+      : "No CA available. Add PG_CA_CERT_B64 or include repo CA file."
+  ]);
+
+  // spacer
+  rows.push(["", "", ""]);
+
+  // --- Section: Connectivity ---
+  rows.push([
+    "<span class='mono'>Connectivity</span>",
+    badge("info", "Section"),
+    "Attempts <span class='mono'>select 1</span> with current SSL settings."
+  ]);
+
   if (!a) {
-    rows.push(["Connectivity", badge("bad","No data"), "—"]);
+    rows.push(["DB check", badge("bad", "No data"), "No diagnostics data for Aiven connectivity."]);
   } else if (!a.ok) {
-    rows.push(["Connectivity", badge("bad","FAIL"), "<span class='mono'>" + (a.error?.code || "") + "</span> " + (a.error?.message || "Unknown")]);
+    const code = a.error?.code ? ("<span class='mono'>" + a.error.code + "</span> ") : "";
+    const msg = a.error?.message || "Unknown error";
+    rows.push(["DB check", badge("bad", "FAIL"), code + msg]);
+
+    // If you ever add these fields later, they will appear automatically
+    if (a.ssl?.hasCa !== undefined) {
+      rows.push(["SSL", badge("info", "Info"), "hasCa: <span class='mono'>" + String(!!a.ssl.hasCa) + "</span>"]);
+    }
   } else {
-    rows.push(["Connectivity", badge("ok","OK"), "Latency: <span class='mono'>" + (a.latencyMs ?? "—") + "ms</span>"]);
-    rows.push(["SSL verification", badge("ok", a.ssl?.rejectUnauthorized ? "verified" : "unverified"), "hasCa: <span class='mono'>" + String(!!a.ssl?.hasCa) + "</span>"]);
-    const c = a.checks || {};
-    rows.push(["Table: user_profiles", c.user_profiles ? badge("ok","Present") : badge("bad","Missing"), "—"]);
-    rows.push(["Table: token_comments", c.token_comments ? badge("ok","Present") : badge("bad","Missing"), "—"]);
-    rows.push(["Table: auth_nonces", c.auth_nonces ? badge("ok","Present") : badge("bad","Missing"), "—"]);
-    rows.push(["Column: auth_nonces.used_at", c.auth_nonces_used_at ? badge("ok","Present") : badge("warn","Missing"), "—"]);
-    rows.push(["Column: auth_nonces.expires_at", c.auth_nonces_expires_at ? badge("ok","Present") : badge("warn","Missing"), "—"]);
+    rows.push([
+      "DB check",
+      badge("ok", "OK"),
+      "Latency: <span class='mono'>" + (a.latencyMs ?? "—") + "ms</span>"
+    ]);
+
+    rows.push([
+      "SSL verification",
+      a.ssl?.rejectUnauthorized ? badge("ok", "Verified") : badge("warn", "Unverified"),
+      "hasCa: <span class='mono'>" + String(!!a.ssl?.hasCa) + "</span>"
+    ]);
   }
 
-  tbody.innerHTML = rows.map(([k,s,d]) =>
-    "<tr><td class='k'>" + k + "</td><td>" + s + "</td><td class='muted'>" + d + "</td></tr>"
-  ).join("");
+  // spacer
+  rows.push(["", "", ""]);
+
+  // --- Section: Schema ---
+  rows.push([
+    "<span class='mono'>Schema</span>",
+    badge("info", "Section"),
+    "Checks required tables/columns for profiles, comments, and nonces."
+  ]);
+
+  const c = a?.checks || {};
+
+  // If no schema data (because connectivity failed or older diagnostics), show guidance
+  if (!a?.ok) {
+    rows.push([
+      "Schema checks",
+      badge("warn", "Skipped"),
+      "Schema checks run only when DB connectivity is OK."
+    ]);
+  } else {
+    rows.push(["Table: user_profiles", c.user_profiles ? badge("ok", "Present") : badge("bad", "Missing"), "Profiles (displayName/avatar/bio)."]);
+    rows.push(["Table: token_comments", c.token_comments ? badge("ok", "Present") : badge("bad", "Missing"), "Comments feed on token pages."]);
+    rows.push(["Table: auth_nonces", c.auth_nonces ? badge("ok", "Present") : badge("bad", "Missing"), "Wallet signature nonces."]);
+
+    // Columns (only meaningful if auth_nonces exists)
+    if (c.auth_nonces) {
+      rows.push(["Column: auth_nonces.nonce", c.auth_nonces_nonce ? badge("ok", "Present") : badge("warn", "Missing"), "Nonce value."]);
+      rows.push(["Column: auth_nonces.expires_at", c.auth_nonces_expires_at ? badge("ok", "Present") : badge("warn", "Missing"), "Expiration timestamp."]);
+      rows.push(["Column: auth_nonces.used_at", c.auth_nonces_used_at ? badge("ok", "Present") : badge("warn", "Missing"), "Replay protection (used marker)."]);
+    } else {
+      rows.push(["auth_nonces columns", badge("warn", "Skipped"), "auth_nonces table missing."]);
+    }
+  }
+
+  tbody.innerHTML = rows
+    .map(([k, st, d]) => "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>")
+    .join("");
 }
+
 
 function setSupabaseRows(j) {
   const tbody = document.getElementById("supabaseRows");
@@ -384,51 +468,155 @@ function setSupabaseRows(j) {
 function setRailwayRows(j) {
   const tbody = document.getElementById("railwayRows");
   const r = j?.checks?.railway;
-
-  if (!r) {
-    tbody.innerHTML = "<tr><td class='k'>/health</td><td>" + badge("warn","Not configured") + "</td><td class='muted'>Set RAILWAY_INDEXER_URL</td></tr>";
-    return;
-  }
-
-  const rows = [];
-  if (!r.ok) {
-    rows.push(["/health", badge("bad","FAIL"), "HTTP: <span class='mono'>" + (r.httpStatus ?? "—") + "</span> " + (typeof r.body === "string" ? r.body : JSON.stringify(r.body))]);
-  } else {
-    rows.push(["/health", badge("ok","OK"), "Latency: <span class='mono'>" + (r.latencyMs ?? "—") + "ms</span>, HTTP: <span class='mono'>" + (r.httpStatus ?? "—") + "</span>"]);
-    rows.push(["URL", badge("info","Info"), "<span class='mono'>" + (r.url || "—") + "</span>"]);
-  }
-
-  tbody.innerHTML = rows.map(([k,st,d]) =>
-    "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>"
-  ).join("");
-}
-
-function setAblyRows(j) {
-  const tbody = document.getElementById("ablyRows");
-  const a = j?.checks?.ably;
   const env = j?.env_presence || {};
 
   const rows = [];
-  if (!a) {
-    rows.push(["Server key", badge("warn","No data"), "—"]);
-  } else if (!a.ok) {
-    rows.push(["Server key", badge("bad","Missing/Invalid"), a.error?.message || a.note || "—"]);
-  } else {
-    rows.push(["Server key", badge("ok","OK"), "Preview: <span class='mono'>" + (a.preview || "—") + "</span>"]);
-    rows.push(["Note", badge("info","Info"), a.note || "—"]);
-  }
 
-  // Client build-time key presence check (helps debug your “invalid key parameter” issue)
+  // --- Section: Configuration ---
   rows.push([
-    "Client key present (server visibility)",
-    env.VITE_ABLY_CLIENT_KEY_on_server ? badge("warn","Present") : badge("info","Unknown"),
-    "Client key is a Vite build-time var; ensure it is a valid Ably key or switch to authUrl-only."
+    "<span class='mono'>Configuration</span>",
+    badge("info", "Section"),
+    "Checks Vercel env + URL normalization for the Railway indexer."
   ]);
 
-  tbody.innerHTML = rows.map(([k,st,d]) =>
-    "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>"
-  ).join("");
+  rows.push([
+    "RAILWAY_INDEXER_URL",
+    env.RAILWAY_INDEXER_URL ? badge("ok", "Present") : badge("warn", "Missing"),
+    env.RAILWAY_INDEXER_URL
+      ? "Configured. Diagnostics will call <span class='mono'>/health</span>."
+      : "Add <span class='mono'>RAILWAY_INDEXER_URL</span> in Vercel (prefer full <span class='mono'>https://…</span>)."
+  ]);
+
+  // spacer
+  rows.push(["", "", ""]);
+
+  // --- Section: Health (/health) ---
+  rows.push([
+    "<span class='mono'>Health check</span>",
+    badge("info", "Section"),
+    "Calls <span class='mono'>GET /health</span> on the Railway service and validates response body."
+  ]);
+
+  if (!r) {
+    rows.push(["/health", badge("warn", "Not checked"), "No diagnostics data for Railway."]);
+  } else if (!r.ok) {
+    const bodyStr =
+      typeof r.body === "string"
+        ? r.body
+        : r.body
+        ? JSON.stringify(r.body)
+        : "";
+
+    const errStr =
+      r.error?.message
+        ? r.error.message
+        : bodyStr
+        ? bodyStr
+        : "Unreachable or unhealthy.";
+
+    rows.push([
+      "/health",
+      badge("bad", "FAIL"),
+      "HTTP: <span class='mono'>" + (r.httpStatus ?? "—") + "</span> " +
+      (errStr ? ("<span class='mono'>" + errStr + "</span>") : "")
+    ]);
+
+    if (r.url) {
+      rows.push(["URL", badge("info", "Info"), "<span class='mono'>" + r.url + "</span>"]);
+    }
+    if (r.note) {
+      rows.push(["Note", badge("info", "Info"), r.note]);
+    }
+  } else {
+    rows.push([
+      "/health",
+      badge("ok", "OK"),
+      "Latency: <span class='mono'>" + (r.latencyMs ?? "—") + "ms</span>, HTTP: <span class='mono'>" + (r.httpStatus ?? "—") + "</span>"
+    ]);
+
+    rows.push(["URL", badge("info", "Info"), "<span class='mono'>" + (r.url || "—") + "</span>"]);
+
+    // Show the Railway payload (your /health returns {ok:false,error:"..."} etc.)
+    if (r.body) {
+      rows.push([
+        "Body",
+        badge("info", "Info"),
+        "<span class='mono'>" + (typeof r.body === "string" ? r.body : JSON.stringify(r.body)) + "</span>"
+      ]);
+    }
+
+    if (r.note) {
+      rows.push(["Note", badge("info", "Info"), r.note]);
+    }
+  }
+
+  tbody.innerHTML = rows
+    .map(([k, st, d]) => "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>")
+    .join("");
 }
+
+
+function setAblyRows(j) {
+  const tbody = document.getElementById("ablyRows");
+  const a = j?.checks?.ably; // server-side check
+  const env = j?.env_presence || {};
+  const preview = j?.redacted?.ABLY_API_KEY_preview || a?.preview || "";
+
+  const rows = [];
+
+  // --- Section: Server-side (Vercel) ---
+  rows.push([
+    "<span class='mono'>Server-side key</span>",
+    badge("info", "Section"),
+    "ABLY_API_KEY is required server-side. Never expose this key to the browser."
+  ]);
+
+  if (!a) {
+    rows.push(["ABLY_API_KEY", badge("warn", "Not checked"), "No diagnostics data for Ably server key."]);
+  } else if (!a.ok) {
+    rows.push([
+      "ABLY_API_KEY",
+      badge("bad", "Missing/Invalid"),
+      a.error?.message || a.note || "Server key missing or invalid."
+    ]);
+  } else {
+    rows.push([
+      "ABLY_API_KEY",
+      badge("ok", "OK"),
+      "Preview: <span class='mono'>" + (preview || "—") + "</span>"
+    ]);
+    rows.push(["Note", badge("info", "Info"), a.note || "—"]);
+  }
+
+  // spacer
+  rows.push(["", "", ""]);
+
+  // --- Section: Client-side (Browser) ---
+  rows.push([
+    "<span class='mono'>Client-side config</span>",
+    badge("info", "Section"),
+    "Browser should ideally use <span class='mono'>authUrl</span> (token auth), not a raw key. Wrong key causes <span class='mono'>invalid key parameter</span>."
+  ]);
+
+  rows.push([
+    "VITE_ABLY_CLIENT_KEY",
+    env.VITE_ABLY_CLIENT_KEY_on_server ? badge("warn", "Present") : badge("info", "Unknown"),
+    env.VITE_ABLY_CLIENT_KEY_on_server
+      ? "Client key appears to be set at build time. Ensure it is a valid Ably key, or remove it and rely on <span class='mono'>authUrl</span> only."
+      : "Not visible server-side (can still be set client-side at build time)."
+  ]);
+
+  rows.push([
+    "Recommendation",
+    badge("info", "Info"),
+    "For production: use <span class='mono'>authUrl: /api/ably/auth</span> and remove <span class='mono'>key</span> from the browser client constructor. This prevents key-format errors and avoids exposing secrets."
+  ]);
+
+  tbody.innerHTML = rows
+    .map(([k, st, d]) => "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>")
+    .join("");
+}
+
 
     function setEnvRows(j) {
       const tbody = document.getElementById("envRows");
