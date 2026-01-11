@@ -354,24 +354,38 @@ const Example = () => {
 
       const singleSetWidth = TOTAL_CARD_WIDTH * displayCards.length;
 
-      // Smooth scroll with edge re-centering
-      setScrollPosition((prev) => {
-        const W = singleSetWidth;
-        const total = W * 3;
-        let newPosition = prev + e.deltaY * 0.6;
+      const normalizeWheelDelta = (evt: WheelEvent, containerEl: HTMLDivElement) => {
+  // deltaMode: 0=pixels, 1=lines, 2=pages
+  const base =
+    evt.deltaMode === 1 ? evt.deltaY * 16 :
+    evt.deltaMode === 2 ? evt.deltaY * containerEl.clientHeight :
+    evt.deltaY;
 
-        if (!W) return prev;
+  return base;
+};
 
-        // Wrap to stay within [0, 3W)
-        while (newPosition < 0) newPosition += W;
-        while (newPosition >= total) newPosition -= W;
+const wrapIntoMiddleBand = (pos: number, W: number) => {
+  const total = W * 3;
+  if (!W || !Number.isFinite(pos)) return 0;
 
-        // Recenter to middle set if too close to edges
-        if (newPosition < W * 0.5) newPosition += W;
-        else if (newPosition >= W * 2.5) newPosition -= W;
+  // True modulo into [0, total)
+  let p = ((pos % total) + total) % total;
 
-        return newPosition;
-      });
+  // Keep in the “middle” region [0.5W, 2.5W)
+  if (p < W * 0.5) p += W;
+  else if (p >= W * 2.5) p -= W;
+
+  return p;
+};
+
+// Smooth scroll with correct wrap
+setScrollPosition((prev) => {
+  const W = TOTAL_CARD_WIDTH * displayCards.length;
+  if (!W) return prev;
+
+  const delta = normalizeWheelDelta(e, container) * 0.6;
+  return wrapIntoMiddleBand(prev + delta, W);
+});
 
       // Snap after user stops scrolling
       scrollTimeoutRef.current = setTimeout(() => snapToNearestCard(), 150);
