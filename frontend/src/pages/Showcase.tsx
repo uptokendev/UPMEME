@@ -15,7 +15,7 @@ const Showcase = () => {
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="flex-1">
+      <div className="flex-1 pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-0">
         <Example />
       </div>
       
