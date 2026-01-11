@@ -3,6 +3,7 @@
  * Practical, step-by-step docs for using the platform.
  */
 
+import React, { useCallback, useRef } from "react";
 import { Link } from "react-router-dom";
 import {
   ArrowRight,
@@ -25,18 +26,23 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 
 function Section({
+  id,
   icon: Icon,
   title,
   subtitle,
   children,
 }: {
+  id: string;
   icon: typeof Rocket;
   title: string;
   subtitle?: string;
   children: React.ReactNode;
 }) {
   return (
-    <Card className="bg-card/30 backdrop-blur-md border border-border rounded-2xl overflow-hidden">
+    <Card
+      id={id}
+      className="bg-card/30 backdrop-blur-md border border-border rounded-2xl overflow-hidden scroll-mt-6"
+    >
       <div className="p-5 md:p-6 flex gap-4 items-start">
         <div className="shrink-0 rounded-xl border border-border/60 bg-background/40 p-3">
           <Icon className="h-5 w-5 text-accent" />
@@ -58,8 +64,33 @@ function Section({
 }
 
 const Playbook = () => {
+  // Scroll container is the element with overflow-y-auto (this page does NOT scroll the window)
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const scrollToSection = useCallback((id: string) => {
+    const container = scrollRef.current;
+    if (!container) return;
+
+    const el = container.querySelector<HTMLElement>(`#${CSS.escape(id)}`);
+    if (!el) return;
+
+    // Scroll inside the container (not the window)
+    el.scrollIntoView({ behavior: "smooth", block: "start", inline: "nearest" });
+
+    // Optional: update hash for shareable anchors without relying on window scrolling
+    // (won't cause navigation, only updates URL fragment)
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.hash = id;
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, []);
+
   return (
-    <div className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-muted/20">
+    <div
+      ref={scrollRef}
+      className="h-full w-full overflow-y-auto scrollbar-thin scrollbar-thumb-accent/40 scrollbar-track-muted/20"
+    >
       <div className="mx-auto max-w-5xl px-4 md:px-6 pb-10">
         {/* Hero */}
         <div className="pt-4 md:pt-6 pb-6 md:pb-8">
@@ -79,9 +110,55 @@ const Playbook = () => {
                 </div>
               </div>
 
+              {/* Anchor buttons */}
               <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToSection("quickstart")}
+                >
+                  Quickstart
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToSection("bonding")}
+                >
+                  Bonding
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToSection("trading")}
+                >
+                  Trading
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToSection("safety")}
+                >
+                  Safety
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => scrollToSection("faq")}
+                >
+                  FAQ
+                </Button>
+              </div>
+
+              {/* Keep badges if you still want them visually (optional) */}
+              <div className="mt-3 flex flex-wrap gap-2">
                 <Badge variant="secondary">Quickstart</Badge>
-                <Badge variant="secondary">Bonding curve</Badge>
+                <Badge variant="secondary">Bonding</Badge>
+                <Badge variant="secondary">Trading</Badge>
                 <Badge variant="secondary">Safety</Badge>
                 <Badge variant="secondary">FAQ</Badge>
               </div>
@@ -121,24 +198,22 @@ const Playbook = () => {
         {/* Sections */}
         <div className="space-y-4 md:space-y-6">
           <Section
+            id="quickstart"
             icon={Rocket}
             title="1) Launch a token"
-            subtitle="Create a campaign, set the basics, and publish." 
+            subtitle="Create a campaign, set the basics, and publish."
           >
             <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground">
               <li>
-                Go to <Link className="text-accent hover:underline" to="/create">Create</Link> and fill in
-                name, ticker, logo, and links.
+                Go to{" "}
+                <Link className="text-accent hover:underline" to="/create">
+                  Create
+                </Link>{" "}
+                and fill in name, ticker, logo, and links.
               </li>
-              <li>
-                Double-check external URLs. Use only official domains/handles.
-              </li>
-              <li>
-                Submit the transaction and confirm in your wallet.
-              </li>
-              <li>
-                After creation, your token appears in the carousel and UP Now.
-              </li>
+              <li>Double-check external URLs. Use only official domains/handles.</li>
+              <li>Submit the transaction and confirm in your wallet.</li>
+              <li>After creation, your token appears in the carousel and UP Now.</li>
             </ol>
 
             <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -162,37 +237,40 @@ const Playbook = () => {
           </Section>
 
           <Section
+            id="bonding"
             icon={Zap}
             title="2) Understand bonding"
-            subtitle="During bonding, pricing and progress follow the campaign mechanics." 
+            subtitle="During bonding, buys and sells happen against the campaign mechanics."
           >
             <div className="text-sm text-muted-foreground space-y-2">
               <p>
-                Tokens can start in a bonding phase. In this phase, buys and sells happen against the
-                campaign, and the price typically changes as supply changes.
+                Tokens can start in a bonding phase. In this phase, price typically changes as supply
+                changes, and trades are executed via the launch contracts (not a DEX pool).
               </p>
               <p>
                 Once the campaign reaches its graduation criteria, it can transition to DEX trading.
-                Graduated tokens appear in the dedicated "graduated" row on UP Now.
+                Graduated tokens appear in the dedicated “graduated” row on UP Now.
               </p>
             </div>
           </Section>
 
           <Section
+            id="trading"
             icon={TrendingUp}
             title="3) Discover and trade"
-            subtitle="Use UP Now to find tokens, then open details for chart, activity, and actions." 
+            subtitle="Use UP Now to find tokens, then open details for chart, activity, and actions."
           >
             <ol className="list-decimal pl-5 space-y-2 text-sm text-muted-foreground">
               <li>
-                Open <Link className="text-accent hover:underline" to="/up-now">UP Now</Link> and browse
-                the sections.
+                Open{" "}
+                <Link className="text-accent hover:underline" to="/up-now">
+                  UP Now
+                </Link>{" "}
+                and browse the sections.
               </li>
+              <li>Tap a card to center it, then tap again to open token details.</li>
               <li>
-                Tap a card to center it, then tap again to open token details.
-              </li>
-              <li>
-                On Token Details, review price action, holders, volume, and recent transactions before trading.
+                On Token Details, review price action, holders, volume, and recent activity before trading.
               </li>
             </ol>
 
@@ -202,53 +280,118 @@ const Playbook = () => {
           </Section>
 
           <Section
+            id="safety"
             icon={ShieldCheck}
             title="4) Safety and risk"
-            subtitle="Practical checks to reduce mistakes and avoid obvious scams." 
+            subtitle="Practical checks to reduce mistakes and avoid obvious scams."
           >
             <ul className="list-disc pl-5 space-y-2 text-sm text-muted-foreground">
-              <li>Verify token address before sharing or trading.</li>
+              <li>Verify the token/campaign address before sharing or trading.</li>
               <li>Prefer official links. Be cautious with rebranded or lookalike domains.</li>
               <li>Do not connect your wallet to unknown sites.</li>
               <li>Assume high volatility. Use position sizing you can tolerate.</li>
             </ul>
           </Section>
 
-          <Section
-            icon={MessageCircle}
-            title="FAQ"
-            subtitle="Answers to the most common questions." 
-          >
+          <Section id="faq" icon={MessageCircle} title="FAQ" subtitle="Answers to the most common questions.">
             <Accordion type="single" collapsible className="w-full">
-              <AccordionItem value="item-1">
-                <AccordionTrigger>Why was the old Docs link showing a 404?</AccordionTrigger>
-                <AccordionContent>
-                  The docs icon previously pointed to a route that did not exist. This page replaces that
-                  placeholder and provides a permanent playbook route.
-                </AccordionContent>
-              </AccordionItem>
-
-              <AccordionItem value="item-2">
+              <AccordionItem value="faq-1">
                 <AccordionTrigger>What is the difference between bonding and graduated?</AccordionTrigger>
                 <AccordionContent>
-                  Bonding typically refers to a pre-DEX phase where the campaign mechanics set pricing.
-                  Graduated tokens have transitioned and are tradable on a DEX (with external liquidity).
+                  Bonding is the initial phase where trades occur against the launch campaign mechanics
+                  (not a DEX pool). Graduated tokens have transitioned to DEX trading, typically with
+                  external liquidity and standard swaps.
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="item-3">
-                <AccordionTrigger>How do I open Token Details?</AccordionTrigger>
+              <AccordionItem value="faq-2">
+                <AccordionTrigger>Can I buy and sell during bonding?</AccordionTrigger>
                 <AccordionContent>
-                  Center a carousel card first (so it highlights), then click it again to navigate into the token.
+                  Yes. If a token is in bonding, buy/sell actions are executed through the campaign.
+                  Expect higher price impact on thin liquidity phases and always review the details page
+                  before trading.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-3">
+                <AccordionTrigger>How do I open Token Details from the carousel?</AccordionTrigger>
+                <AccordionContent>
+                  First click to center/highlight a card, then click it again to navigate to the token.
                   This prevents accidental navigation when you are just scrolling.
                 </AccordionContent>
               </AccordionItem>
 
-              <AccordionItem value="item-4">
+              <AccordionItem value="faq-4">
+                <AccordionTrigger>Why does my transaction fail or get stuck?</AccordionTrigger>
+                <AccordionContent>
+                  The most common causes are: insufficient gas, RPC congestion, slippage/price movement,
+                  or wallet rejection. Try increasing gas slightly, refreshing, and re-submitting. Always
+                  confirm you are on the correct network.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-5">
+                <AccordionTrigger>Why does the price jump when I buy or sell?</AccordionTrigger>
+                <AccordionContent>
+                  Price impact is expected, especially during bonding or on low liquidity. Larger orders
+                  move the price more. Consider splitting entries/exits and avoid market-chasing.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-6">
+                <AccordionTrigger>Where do I find the contract / token address?</AccordionTrigger>
+                <AccordionContent>
+                  On the token card and Token Details page you can copy the address. Always verify the
+                  address before sharing or trading to avoid clones.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-7">
+                <AccordionTrigger>Why does the chart look different before DEX trading?</AccordionTrigger>
+                <AccordionContent>
+                  Before DEX trading, price data can come from campaign trades rather than an external pool.
+                  After graduation, charts generally reflect DEX activity and liquidity conditions.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-8">
+                <AccordionTrigger>How do I avoid fake links and impersonators?</AccordionTrigger>
+                <AccordionContent>
+                  Only trust links shown on the official token page, and verify handles/domains. Be cautious
+                  of lookalike accounts, changed usernames, and URLs with extra characters.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-9">
+                <AccordionTrigger>Can I edit token name, ticker, or image after launch?</AccordionTrigger>
+                <AccordionContent>
+                  In most launch flows, core metadata is meant to be immutable once created. If your setup
+                  supports profile-based overrides, those changes affect UI display but do not change the
+                  on-chain token itself.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-10">
+                <AccordionTrigger>Why don’t I see my new token immediately?</AccordionTrigger>
+                <AccordionContent>
+                  It can take a short time for indexing / refresh. Try refreshing the page. If you just created
+                  a token, it should appear in the carousel and UP Now shortly after confirmation.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-11">
                 <AccordionTrigger>Do you offer financial advice?</AccordionTrigger>
                 <AccordionContent>
                   No. This playbook is product documentation only. Crypto assets can be highly volatile;
-                  always do your own research.
+                  always do your own research and manage risk responsibly.
+                </AccordionContent>
+              </AccordionItem>
+
+              <AccordionItem value="faq-12">
+                <AccordionTrigger>How do I report a bug or suspicious token?</AccordionTrigger>
+                <AccordionContent>
+                  Use the official social links and channels. Include the token address, screenshots, and a
+                  clear description of what happened. Never share your seed phrase or private keys.
                 </AccordionContent>
               </AccordionItem>
             </Accordion>
