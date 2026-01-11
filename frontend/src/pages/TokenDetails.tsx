@@ -16,6 +16,7 @@ import twitterIcon from "@/assets/social/twitter.png";
 import { useLaunchpad } from "@/lib/launchpadClient";
 import type { CampaignInfo, CampaignMetrics, CampaignSummary } from "@/lib/launchpadClient";
 import { useDexScreenerChart } from "@/hooks/useDexScreenerChart";
+import { useBnbUsdPrice } from "@/hooks/useBnbUsdPrice";
 import { CurvePriceChart } from "@/components/token/CurvePriceChart";
 import { USE_MOCK_DATA } from "@/config/mockConfig";
 import { getMockCurveEventsForSymbol } from "@/constants/mockCurveTrades";
@@ -58,8 +59,25 @@ const TokenDetails = () => {
   const [selectedTimeframe, setSelectedTimeframe] = useState<
     "5m" | "1h" | "4h" | "24h"
   >("24h");
+
+  const [mcDenom, setMcDenom] = useState<"BNB" | "USD">(() => {
+    try {
+      const saved = localStorage.getItem("launchit:mcDenom");
+      return saved === "BNB" || saved === "USD" ? saved : "USD";
+    } catch {
+      return "USD";
+    }
+  });
   const [metricsExpanded, setMetricsExpanded] = useState(false);
   const isMobile = window.innerWidth < 768;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("launchit:mcDenom", mcDenom);
+    } catch {
+      // ignore
+    }
+  }, [mcDenom]);
 
   // Launchpad hooks + state for the on-chain data
   const { fetchCampaigns, fetchCampaignSummary, fetchCampaignMetrics, buyTokens, sellTokens } = useLaunchpad();
@@ -174,6 +192,36 @@ const TokenDetails = () => {
       return "—";
     }
   };
+  const parseBnbLabel = (input?: string | null): number | null => {
+    if (!input) return null;
+    const s = String(input).trim();
+    if (!s || s === "—") return null;
+    // Accept forms like "0.1234 BNB", "1.00", etc.
+    const cleaned = s.replace(/[^0-9.\-]/g, "");
+    const n = Number(cleaned);
+    return Number.isFinite(n) ? n : null;
+  };
+
+  const formatCompactUsd = (usd: number): string => {
+    if (!Number.isFinite(usd)) return "—";
+    const abs = Math.abs(usd);
+
+    const fmt = (v: number, suffix: string) => {
+      const decimals = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+      return `$${v.toFixed(decimals)}${suffix}`;
+    };
+
+    if (abs >= 1e12) return fmt(usd / 1e12, "T");
+    if (abs >= 1e9) return fmt(usd / 1e9, "B");
+    if (abs >= 1e6) return fmt(usd / 1e6, "M");
+    if (abs >= 1e3) return fmt(usd / 1e3, "K");
+
+    // Small values: show up to 2 decimals
+    const decimals = abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6;
+    return `$${usd.toFixed(decimals)}`;
+  };
+
+
 
   const parseTokenAmountWei = (value: string): bigint => {
     const v = (value ?? "").trim();
@@ -366,6 +414,24 @@ const TokenDetails = () => {
       metrics: timeframeTiles,
     };
   }, [campaign, curveReserveWei, metrics, summary, timeframeTiles]);
+  const { price: bnbUsdPrice, loading: bnbUsdLoading } = useBnbUsdPrice(
+    mcDenom === "USD"
+  );
+
+  const marketCapDisplay = useMemo(() => {
+    const bnbLabel = tokenData.marketCap;
+
+    if (mcDenom === "BNB") return bnbLabel;
+
+    const mcBnb = parseBnbLabel(bnbLabel);
+    if (mcBnb == null) return "—";
+
+    if (!bnbUsdPrice) return bnbUsdLoading ? "…" : "—";
+
+    return formatCompactUsd(mcBnb * bnbUsdPrice);
+  }, [mcDenom, tokenData.marketCap, bnbUsdPrice, bnbUsdLoading]);
+
+
 
   // Reserve / "liquidity" shown on the page: BNB held by the campaign contract (pre-graduation)
   useEffect(() => {
@@ -1010,8 +1076,27 @@ const TokenDetails = () => {
               <div className="flex items-center justify-between md:flex-col md:gap-1.5 md:flex-1 md:min-w-0">
                 <p className="text-xs text-muted-foreground">Market cap</p>
                 <div className="flex items-center gap-2 md:gap-3">
-                  <h2 className="text-lg md:text-2xl font-retro text-foreground">
-                    {tokenData.marketCap}
+                  <div className="flex items-center gap-1 rounded-md bg-muted/40 p-0.5">
+                    <Button
+                      size="sm"
+                      variant={mcDenom === "USD" ? "secondary" : "ghost"}
+                      className="h-6 px-2"
+                      onClick={() => setMcDenom("USD")}
+                    >
+                      USD
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={mcDenom === "BNB" ? "secondary" : "ghost"}
+                      className="h-6 px-2"
+                      onClick={() => setMcDenom("BNB")}
+                    >
+                      BNB
+                    </Button>
+                  </div>
+
+                                    <h2 className="text-lg md:text-2xl font-retro text-foreground">
+                    {marketCapDisplay}
                   </h2>
                 </div>
               </div>
