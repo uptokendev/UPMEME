@@ -121,7 +121,7 @@ export function useCurveTrades(campaignAddress?: string) {
           try {
             const parsed = iface.parseLog(log);
             const buyer = String(parsed.args.buyer).toLowerCase();
-            const tokensWei = parsed.args.tokens as bigint;
+            const tokensWei = parsed.args.amountOut as bigint;
             const nativeWei = parsed.args.cost as bigint;
             const pricePerToken = Number(ethers.formatEther(nativeWei)) / Math.max(1e-18, Number(ethers.formatUnits(tokensWei, 18)));
 
@@ -147,7 +147,7 @@ export function useCurveTrades(campaignAddress?: string) {
           try {
             const parsed = iface.parseLog(log);
             const seller = String(parsed.args.seller).toLowerCase();
-            const tokensWei = parsed.args.tokens as bigint;
+            const tokensWei = parsed.args.amountIn as bigint;
             const nativeWei = parsed.args.payout as bigint;
             const pricePerToken = Number(ethers.formatEther(nativeWei)) / Math.max(1e-18, Number(ethers.formatUnits(tokensWei, 18)));
 
