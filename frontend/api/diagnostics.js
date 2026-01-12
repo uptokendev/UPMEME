@@ -256,6 +256,9 @@ async function checkSupabaseServiceRole() {
     supabaseHost: supaHost,
     issuerMismatch,
   };
+  const headers = jwtInfo.looksJwt
+  ? { Authorization: `Bearer ${key}`, apikey: key }   // legacy JWT keys
+  : { apikey: key }; 
 
   if (!baseUrl || !key) {
     return {
@@ -272,13 +275,10 @@ async function checkSupabaseServiceRole() {
   try {
     const t0 = Date.now();
     const r = await fetch(url, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        apikey: key,
-      },
-      cache: "no-store",
-    });
+  method: "GET",
+  headers,
+  cache: "no-store",
+});
     const latencyMs = Date.now() - t0;
 
     const text = await r.text();
