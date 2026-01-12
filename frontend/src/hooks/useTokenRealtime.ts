@@ -76,8 +76,9 @@ export function useTokenRealtime(chainId: number, campaign: string) {
   useEffect(() => {
     if (!API_BASE || !campaign) return;
 
-    const client = new Ably.Realtime({
-  authUrl: `/api/ably/token?chainId=${chainId}&campaign=${campaign.toLowerCase()}`,
+    const base = String(API_BASE || "").replace(/\/$/, "");
+const client = new Ably.Realtime({
+  authUrl: `${base}/api/ably/token?chainId=${chainId}&campaign=${campaign.toLowerCase()}`,
   authMethod: "GET",
 });
 

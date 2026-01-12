@@ -216,7 +216,8 @@ useEffect(() => {
   }
 
   const campaign = campaignAddress.toLowerCase();
-  const authUrl = `/api/ably/token?chainId=${chainId}&campaign=${campaign}`;
+  if (!API_BASE) return; // need Railway base for authUrl
+const authUrl = `${API_BASE}/api/ably/token?chainId=${chainId}&campaign=${campaignAddress.toLowerCase()}`;
 
   const ably = new Ably.Realtime({
     authUrl,

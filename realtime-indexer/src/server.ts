@@ -4,18 +4,48 @@ import { ENV } from "./env.js";
 import { pool } from "./db.js";
 import { ablyRest, tokenChannel } from "./ably.js";
 import { runIndexerOnce } from "./indexer.js";
+import type { Request, Response, NextFunction, RequestHandler } from "express";
 
 const app = express();
 
-app.use(cors({
-  origin: [
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "https://upmeme.vercel.app"
-  ],
-  credentials: false
-}));
+const wrap =
+  (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>): RequestHandler =>
+  (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 
+const allowedOrigins = new Set([
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://upmeme.vercel.app",
+]);
+
+function isAllowedOrigin(origin?: string) {
+  if (!origin) return true; // allow non-browser (curl, server-to-server)
+  if (allowedOrigins.has(origin)) return true;
+
+  // Allow Vercel preview deployments for this project:
+  // e.g. https://upmeme-git-somebranch-uptokendev.vercel.app
+  // If you have a custom pattern, adjust as needed.
+  try {
+    const u = new URL(origin);
+    if (u.hostname.endsWith(".vercel.app") && u.hostname.includes("upmeme")) return true;
+  } catch {
+    // ignore invalid origin
+  }
+
+  return false;
+}
+
+app.use(
+  cors({
+    origin: (origin, cb) => {
+      cb(null, isAllowedOrigin(origin));
+    },
+    credentials: false,
+  })
+);
+app.options("*", cors());
 app.get("/health", async (_req, res) => {
   try {
     const r = await pool.query("select 1 as ok");
@@ -57,7 +87,7 @@ app.get("/api/ably/token", async (req, res) => {
 /**
  * Snapshot endpoints for TokenDetails
  */
-app.get("/api/token/:campaign/summary", async (req, res) => {
+app.get("/api/token/:campaign/summary", wrap(async (req, res) => {
   const campaign = String(req.params.campaign || "").toLowerCase();
   const chainId = Number(req.query.chainId || 97);
 
@@ -66,9 +96,9 @@ app.get("/api/token/:campaign/summary", async (req, res) => {
     [chainId, campaign]
   );
   res.json(r.rows[0] || null);
-});
+}));
 
-app.get("/api/token/:campaign/trades", async (req, res) => {
+app.get("/api/token/:campaign/trades", wrap(async (req, res) => {
   const campaign = String(req.params.campaign || "").toLowerCase();
   const chainId = Number(req.query.chainId || 97);
   const limit = Math.min(Number(req.query.limit || 50), 200);
@@ -85,9 +115,9 @@ app.get("/api/token/:campaign/trades", async (req, res) => {
   );
 
   res.json(r.rows);
-});
+}));
 
-app.get("/api/token/:campaign/candles", async (req, res) => {
+app.get("/api/token/:campaign/candles", wrap(async (req, res) => {
   const campaign = String(req.params.campaign || "").toLowerCase();
   const chainId = Number(req.query.chainId || 97);
   const tf = String(req.query.tf || "5s");
@@ -102,10 +132,12 @@ app.get("/api/token/:campaign/candles", async (req, res) => {
     [chainId, campaign, tf, limit]
   );
 
-  // Return ascending for chart
   res.json(r.rows.reverse());
+}));
+app.use((err: any, _req: any, res: any, _next: any) => {
+  console.error("API error:", err);
+  res.status(500).json({ ok: false, error: err?.message || String(err) });
 });
-
 // Start server (Railway requires 0.0.0.0:PORT) :contentReference[oaicite:1]{index=1}
 app.listen(ENV.PORT, "0.0.0.0", () => {
   console.log(`realtime-indexer listening on 0.0.0.0:${ENV.PORT}`);

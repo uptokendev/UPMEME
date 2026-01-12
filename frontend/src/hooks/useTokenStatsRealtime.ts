@@ -93,7 +93,7 @@ export function useTokenStatsRealtime(campaignAddress?: string, chainId?: number
   useEffect(() => {
     if (!enabled || !campaignAddress) return;
     if (!API_BASE) return;
-    const authUrl = `/api/ably/token?chainId=${cid}&campaign=${campaignAddress.toLowerCase()}`;
+    const authUrl = `${API_BASE}/api/ably/token?chainId=${cid}&campaign=${campaignAddress.toLowerCase()}`;
 const ably = new Ably.Realtime({ authUrl, authMethod: "GET" });
     ablyRef.current = ably;
 
