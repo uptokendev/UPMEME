@@ -1,0 +1,33 @@
+name: Daily indexer repair
+
+on:
+  schedule:
+    - cron: "0 3 * * *" # 03:00 UTC daily
+  workflow_dispatch: {}
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install (realtime-indexer)
+        working-directory: realtime-indexer
+        run: npm ci
+      - name: Build (realtime-indexer)
+        working-directory: realtime-indexer
+        run: npm run build
+      - name: Run daily repair
+        working-directory: realtime-indexer
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ABLY_API_KEY: ${{ secrets.ABLY_API_KEY }}
+          BSC_RPC_HTTP_97: ${{ secrets.BSC_RPC_HTTP_97 }}
+          FACTORY_ADDRESS_97: ${{ secrets.FACTORY_ADDRESS_97 }}
+          FACTORY_START_BLOCK_97: ${{ secrets.FACTORY_START_BLOCK_97 }}
+          FACTORY_LOOKBACK_BLOCKS: "250000"
+          REPAIR_LOOKBACK_BLOCKS: "20000"
+          REPAIR_REWIND_BLOCKS: "200"
+        run: npm run cron:daily-repair
