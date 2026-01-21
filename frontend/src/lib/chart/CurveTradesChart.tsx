@@ -18,11 +18,15 @@ type Props = {
 function formatCompact(n: number) {
   if (!Number.isFinite(n)) return "";
   const abs = Math.abs(n);
+
+  // Show more precision for sub-1 prices (common in memecoins)
+  if (abs > 0 && abs < 1) return n.toFixed(6);
+
   if (abs >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
   if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
   if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  if (abs >= 1) return n.toFixed(2);
-  return n.toPrecision(2);
+
+  return n.toFixed(4);
 }
 
 export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height }) => {
@@ -85,14 +89,15 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       crosshair: { mode: CrosshairMode.Normal },
 
       rightPriceScale: {
-        visible: true,
-        borderVisible: true,
-        borderColor: "rgba(255,255,255,0.18)",
-        ticksVisible: true,
-        textColor: "rgba(255,255,255,0.90)",
-        entireTextOnly: true,
-        scaleMargins: { top: 0.08, bottom: 0.08 },
-      },
+  visible: true,
+  autoScale: true,
+  borderVisible: true,
+  borderColor: "rgba(255,255,255,0.18)",
+  ticksVisible: true,
+  textColor: "rgba(255,255,255,0.90)",
+  minimumWidth: 70,           // IMPORTANT: forces room for ladder
+  scaleMargins: { top: 0.08, bottom: 0.08 },
+},
 
       timeScale: {
         borderVisible: true,
@@ -117,7 +122,11 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
         axisPressedMouseMove: { time: true, price: true },
       },
     });
-
+chart.priceScale("right").applyOptions({
+  textColor: "rgba(255,255,255,0.90)",
+  ticksVisible: true,
+  borderVisible: true,
+});
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#26a69a",
       downColor: "#ef5350",
@@ -127,10 +136,10 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       priceLineVisible: true,
       lastValueVisible: true,
       priceFormat: {
-        type: "custom",
-        minMove: 0.00000001,
-        formatter: (p: number) => formatCompact(p),
-      },
+  type: "custom",
+  minMove: 0.000001,
+  formatter: (p: number) => formatCompact(p),
+},
     });
 
     chartRef.current = chart;
