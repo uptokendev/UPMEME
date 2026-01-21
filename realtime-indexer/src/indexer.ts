@@ -186,8 +186,9 @@ async function upsertCampaign(
            symbol=coalesce(excluded.symbol, public.campaigns.symbol),
            created_block=(
              case
-               when public.campaigns.created_block is null then excluded.created_block
-               when excluded.created_block is null then public.campaigns.created_block
+               -- Treat 0 as "unknown" (older migrations used DEFAULT 0).
+               when public.campaigns.created_block is null or public.campaigns.created_block=0 then excluded.created_block
+               when excluded.created_block is null or excluded.created_block=0 then public.campaigns.created_block
                else least(public.campaigns.created_block, excluded.created_block)
              end
            ),
@@ -205,12 +206,17 @@ async function upsertCampaign(
   );
 }
 
-async function listActiveCampaigns(chainId: number): Promise<string[]> {
+async function listActiveCampaigns(chainId: number): Promise<Array<{ campaign: string; createdBlock: number }>> {
   const r = await pool.query(
-    `select campaign_address from public.campaigns where chain_id=$1 and is_active=true`,
+    `select campaign_address, coalesce(created_block, 0) as created_block
+     from public.campaigns
+     where chain_id=$1 and is_active=true`,
     [chainId]
   );
-  return r.rows.map((x) => String(x.campaign_address));
+  return r.rows.map((x) => ({
+    campaign: String(x.campaign_address),
+    createdBlock: Number(x.created_block || 0)
+  }));
 }
 
 async function insertTrade(row: {
@@ -630,7 +636,7 @@ async function runIndexerCore(opts: { mode: "normal" | "repair"; lookbackBlocks:
     }
 
     // ---------------- Campaign scans ----------------
-    let campaigns: string[] = [];
+    let campaigns: Array<{ campaign: string; createdBlock: number }> = [];
     try {
       campaigns = await listActiveCampaigns(chain.chainId);
     } catch (e) {
@@ -638,17 +644,25 @@ async function runIndexerCore(opts: { mode: "normal" | "repair"; lookbackBlocks:
       continue;
     }
 
-    for (const campaign of campaigns) {
+    for (const c of campaigns) {
+      const campaign = c.campaign;
       try {
         const cursor = `campaign:${campaign.toLowerCase()}`;
         const state = await getState(chain.chainId, cursor);
         const windowStart = Math.max(0, target - opts.lookbackBlocks);
 
+        // Prefer a deterministic start block when we have no state yet.
+        // This prevents "newly discovered" campaigns from missing older trades
+        // that fall outside the rolling lookback window.
+        const campaignStart = c.createdBlock && c.createdBlock > 0
+          ? c.createdBlock
+          : (chain.factoryStartBlock || 0);
+
         // In normal mode, campaign scans should start from their cursor state.
         // In repair mode, rewind the cursor slightly but never earlier than windowStart.
         const from = opts.mode === "repair"
           ? Math.max(windowStart, Math.max(0, state - opts.rewindBlocks))
-          : (state > 0 ? state : windowStart);
+          : (state > 0 ? state : (campaignStart > 0 ? campaignStart : windowStart));
 
         await withProviderRetry((p) => scanCampaignRange(p, chain.chainId, campaign, from, target));
       } catch (e) {

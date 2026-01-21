@@ -73,7 +73,7 @@ const Create = () => {
     }
 
     // Require image
-    if (!formData.imagePreview) {
+    if (!formData.imagePreview || !formData.image) {
       toast.error("Please upload a token image");
       return;
     }
@@ -88,12 +88,37 @@ const Create = () => {
       // Show nice processing overlay
       startProcessing();
 
+      // IMPORTANT: Do not store base64 images on-chain.
+      // Upload to Supabase Storage via the Vercel API route and pass the resulting URL.
+      let logoURI = "";
+      {
+        const chainId = String(wallet.chainId ?? import.meta.env.VITE_TARGET_CHAIN_ID ?? "97");
+        const address = (wallet.account ?? "").toLowerCase();
+        const qs = new URLSearchParams({ kind: "logo", chainId, address }).toString();
+        const fd = new FormData();
+        fd.append("file", formData.image);
+
+        const res = await fetch(`/api/upload?${qs}`, {
+          method: "POST",
+          body: fd,
+        });
+
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          throw new Error(txt || `Logo upload failed (${res.status})`);
+        }
+
+        const json = (await res.json()) as { url?: string };
+        if (!json?.url) throw new Error("Logo upload failed (missing url)");
+        logoURI = json.url;
+      }
+
       // For now we use 0 for pricing params.
       // We can later extend the form to include basePrice / slope / target.
       await createCampaign({
         name: formData.name,
         symbol: formData.ticker.toUpperCase(),
-        logoURI: formData.imagePreview,
+        logoURI,
         xAccount: formData.twitter || "",
         website: formData.website || "",
         extraLink: formData.otherLink || "",
