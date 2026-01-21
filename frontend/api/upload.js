@@ -63,7 +63,7 @@ export default async function handler(req, res) {
       const ext = pickExt(mimetype);
       if (!ext) return bad(res, 400, "Unsupported image type.");
 
-      const bucket = process.env.SUPABASE_BUCKET || "UPMEME";
+      const bucket = process.env.SUPABASE_BUCKET || "upmeme";
 
       // Defensive UUID generation across runtimes
       const uuid =
