@@ -39,6 +39,16 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
   const candleSeriesRef = useRef<any>(null);
   const roRef = useRef<ResizeObserver | null>(null);
 
+  // Desired candle width in pixels. We compute how many bars to show from container width
+  // so candles look consistent across timeframes and when resizing.
+  const DESIRED_BAR_PX = 10;
+  // On small screens we may only fit ~15–30 bars at the desired pixel width.
+  // Keep this low to avoid squeezing candles into sub-pixel widths.
+  const MIN_VISIBLE_BARS = 20;
+  const MAX_VISIBLE_BARS = 260;
+
+  const lastBarCountRef = useRef(0);
+
   // Re-render once per second so we always extend candles to "now"
   const [nowTick, setNowTick] = useState(0);
   useEffect(() => {
@@ -103,21 +113,18 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       },
 
       timeScale: {
-  borderVisible: true,
-  borderColor: "rgba(255,255,255,0.12)",
-  timeVisible: true,
-  secondsVisible: intervalSec <= 60,
-
-  rightOffset: 6,
-
-  // MORE GAP BETWEEN CANDLES
-  barSpacing: 12,
-  minBarSpacing: 8,
-
-  lockVisibleTimeRangeOnResize: true,
-  fixLeftEdge: true,
-  fixRightEdge: true,
-},
+        borderVisible: true,
+        borderColor: "rgba(255,255,255,0.12)",
+        timeVisible: true,
+        secondsVisible: intervalSec <= 60,
+        rightOffset: 6,
+        // Keep candles readable; actual visible bar count is computed from width.
+        barSpacing: DESIRED_BAR_PX,
+        minBarSpacing: Math.max(4, Math.floor(DESIRED_BAR_PX * 0.7)),
+        lockVisibleTimeRangeOnResize: true,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
 
       handleScroll: {
         mouseWheel: true,
@@ -132,26 +139,24 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       },
     });
 
+    // v5 API: addSeries(SeriesDefinition, options)
     const candleSeries = chart.addSeries(CandlestickSeries, {
-  upColor: "#26a69a",
-  downColor: "#ef5350",
-
-  // SHOW SEPARATION BETWEEN FLAT CANDLES
-  borderVisible: true,
-  borderUpColor: "rgba(38,166,154,0.95)",
-  borderDownColor: "rgba(239,83,80,0.95)",
-
-  wickUpColor: "#26a69a",
-  wickDownColor: "#ef5350",
-  priceLineVisible: true,
-  lastValueVisible: true,
-
-  priceFormat: {
-    type: "custom",
-    minMove: 0.01,
-    formatter: (p: number) => formatUsd(p),
-  },
-});
+      upColor: "#26a69a",
+      downColor: "#ef5350",
+      // Borders help visually separate doji/flat candles (otherwise they can look like a continuous line).
+      borderVisible: true,
+      borderUpColor: "rgba(38,166,154,0.95)",
+      borderDownColor: "rgba(239,83,80,0.95)",
+      wickUpColor: "#26a69a",
+      wickDownColor: "#ef5350",
+      priceLineVisible: true,
+      lastValueVisible: true,
+      priceFormat: {
+        type: "custom",
+        minMove: 0.01,
+        formatter: (p: number) => formatUsd(p),
+      },
+    });
 
     // Extra safety: force right scale ladder visibility
     chart.priceScale("right").applyOptions({
@@ -172,6 +177,23 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       const inferred = r.height || c.clientHeight || 360;
       const h2 = Math.max(200, height ?? inferred);
       chart.applyOptions({ width: w, height: h2 });
+
+      // Keep the visual candle width consistent after resize.
+      chart.timeScale().applyOptions({
+        barSpacing: DESIRED_BAR_PX,
+        minBarSpacing: Math.max(4, Math.floor(DESIRED_BAR_PX * 0.7)),
+      });
+
+       const bars = lastBarCountRef.current;
+       if (bars > 5) {
+         const visibleBars = Math.max(
+           MIN_VISIBLE_BARS,
+           Math.min(MAX_VISIBLE_BARS, Math.floor(w / DESIRED_BAR_PX))
+         );
+         const from = Math.max(0, bars - visibleBars);
+         const to = bars + 5;
+         chart.timeScale().setVisibleLogicalRange({ from, to });
+       }
     });
 
     ro.observe(el);
@@ -192,48 +214,51 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
 
     series.setData(candles as any);
 
+    lastBarCountRef.current = candles.length;
+
     if (fittedRef.current.intervalSec !== intervalSec) {
       fittedRef.current = { intervalSec, fitted: false };
     }
 
+    // Initial auto-range per timeframe (show last N bars based on container width)
     const chart = chartRef.current;
-if (!chart) return;
+    const el = containerRef.current;
+    if (!chart || !el) return;
 
-const bars = candles.length;
+    if (!fittedRef.current.fitted && candles.length > 5) {
+      const w = Math.max(10, el.getBoundingClientRect().width || el.clientWidth || 10);
 
-const targetBars =
-  intervalSec <= 5 ? 180 :
-  intervalSec <= 60 ? 240 :
-  intervalSec <= 300 ? 180 :
-  intervalSec <= 900 ? 160 :
-  120;
+      // Ensure bar spacing stays consistent (users can still zoom; this establishes the default).
+      chart.timeScale().applyOptions({
+        barSpacing: DESIRED_BAR_PX,
+        minBarSpacing: Math.max(4, Math.floor(DESIRED_BAR_PX * 0.7)),
+      });
 
-if (fittedRef.current.intervalSec !== intervalSec) {
-  fittedRef.current = { intervalSec, fitted: false };
-}
-
-if (!fittedRef.current.fitted && bars > 5) {
-  const from = Math.max(0, bars - targetBars);
-  const to = bars + 5;
-  chart.timeScale().setVisibleLogicalRange({ from, to });
-  fittedRef.current.fitted = true;
-}
+      const visibleBars = Math.max(
+        MIN_VISIBLE_BARS,
+        Math.min(MAX_VISIBLE_BARS, Math.floor(w / DESIRED_BAR_PX))
+      );
+      const from = Math.max(0, candles.length - visibleBars);
+      const to = candles.length + 5;
+      chart.timeScale().setVisibleLogicalRange({ from, to });
+      fittedRef.current.fitted = true;
+    }
   }, [candles, intervalSec]);
 
   return (
-  <div style={{ width: "100%", height: height ? `${height}px` : "100%" }}>
-    {/* This inner wrapper defines the exact drawing box */}
-    <div
-      style={{
-        width: "100%",
-        height: "100%",
-        position: "relative",
-        paddingLeft: 8,
-        paddingRight: 12, // give room for price scale
-      }}
-    >
-      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+    <div style={{ width: "100%", height: height ? `${height}px` : "100%" }}>
+      {/* Inner wrapper defines the exact drawing box (prevents 'cut off' look in padded cards). */}
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          position: "relative",
+          paddingLeft: 8,
+          paddingRight: 12, // room for the right price scale
+        }}
+      >
+        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+      </div>
     </div>
-  </div>
-);
+  );
 };
