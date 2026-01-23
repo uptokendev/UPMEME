@@ -132,21 +132,26 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
       },
     });
 
-    // v5 API: addSeries(SeriesDefinition, options)
     const candleSeries = chart.addSeries(CandlestickSeries, {
-      upColor: "#26a69a",
-      downColor: "#ef5350",
-      borderVisible: false,
-      wickUpColor: "#26a69a",
-      wickDownColor: "#ef5350",
-      priceLineVisible: true,
-      lastValueVisible: true,
-      priceFormat: {
-        type: "custom",
-        minMove: 0.01,
-        formatter: (p: number) => formatUsd(p),
-      },
-    });
+  upColor: "#26a69a",
+  downColor: "#ef5350",
+
+  // SHOW SEPARATION BETWEEN FLAT CANDLES
+  borderVisible: true,
+  borderUpColor: "rgba(38,166,154,0.9)",
+  borderDownColor: "rgba(239,83,80,0.9)",
+
+  wickUpColor: "#26a69a",
+  wickDownColor: "#ef5350",
+  priceLineVisible: true,
+  lastValueVisible: true,
+
+  priceFormat: {
+    type: "custom",
+    minMove: 0.01,
+    formatter: (p: number) => formatUsd(p),
+  },
+});
 
     // Extra safety: force right scale ladder visibility
     chart.priceScale("right").applyOptions({
