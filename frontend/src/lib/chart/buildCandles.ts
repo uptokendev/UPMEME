@@ -39,10 +39,11 @@ function bucketStartSec(tsMs: number, intervalSec: number): number {
 /**
  * Build OHLC candles from raw points.
  *
- * Key behavior (for your TradingView-like experience):
- * - If extendToNow is enabled, the function:
- *   - fills missing buckets between trades with flat candles
- *   - extends to the current bucket (so 5s/1m/5m always keeps printing)
+ * TradingView-like behavior:
+ * - When a new bucket starts, OPEN = previous candle CLOSE.
+ *   This ensures you get a visible candle body even if there is only 1 trade in that bucket.
+ * - Fills missing buckets with flat candles.
+ * - If extendToNow is enabled, extends to the current bucket with flat candles.
  */
 export function buildCandles(
   points: CurveTradePoint[],
@@ -64,6 +65,12 @@ export function buildCandles(
   const candles: Candle[] = [];
   const volumes: VolumeBar[] = [];
 
+  const pushBucket = (bucketSec: number, o: number, h: number, l: number, c: number, v: number) => {
+    candles.push({ time: bucketSec, open: o, high: h, low: l, close: c });
+    volumes.push({ time: bucketSec, value: v });
+  };
+
+  // Initialize first bucket from first point
   let curBucket = bucketStartSec(sorted[0].ts, intervalSec);
   let open = sorted[0].value;
   let high = sorted[0].value;
@@ -71,34 +78,30 @@ export function buildCandles(
   let close = sorted[0].value;
   let vol = sorted[0].volume ?? 0;
 
-  const pushBucket = (bucketSec: number, o: number, h: number, l: number, c: number, v: number) => {
-    candles.push({ time: bucketSec, open: o, high: h, low: l, close: c });
-    volumes.push({ time: bucketSec, value: v });
-  };
-
   for (let i = 1; i < sorted.length; i++) {
     const p = sorted[i];
     const bSec = bucketStartSec(p.ts, intervalSec);
 
-    // new bucket (or gap)
     if (bSec !== curBucket) {
-      // finalize current
+      // finalize current bucket
       pushBucket(curBucket, open, high, low, close, vol);
 
-      // fill gaps with flat candles (close->open) so chart does not "teleport"
+      const prevClose = close;
+
+      // fill gaps with flat candles (prevClose)
       if (bSec > curBucket + intervalSec) {
         let fill = curBucket + intervalSec;
         while (fill < bSec) {
-          pushBucket(fill, close, close, close, close, 0);
+          pushBucket(fill, prevClose, prevClose, prevClose, prevClose, 0);
           fill += intervalSec;
         }
       }
 
-      // start new
+      // start NEW bucket with TradingView-like OPEN = prevClose
       curBucket = bSec;
-      open = p.value;
-      high = p.value;
-      low = p.value;
+      open = prevClose;
+      high = Math.max(prevClose, p.value);
+      low = Math.min(prevClose, p.value);
       close = p.value;
       vol = p.volume ?? 0;
       continue;
@@ -114,11 +117,11 @@ export function buildCandles(
   // finalize last real bucket
   pushBucket(curBucket, open, high, low, close, vol);
 
+  // extend to now with flat candles
   if (extendToNow) {
     const endBucket = Math.floor(nowSec / intervalSec) * intervalSec;
     let fill = curBucket + intervalSec;
     while (fill <= endBucket) {
-      // flat candles until now
       pushBucket(fill, close, close, close, close, 0);
       fill += intervalSec;
     }
