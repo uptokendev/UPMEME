@@ -192,8 +192,19 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
   }, [candles, intervalSec]);
 
   return (
-    <div style={{ width: "100%", height: height ? `${height}px` : "100%", position: "relative" }}>
-      <div ref={containerRef} style={{ position: "absolute", inset: 0, overflow: "hidden", borderRadius: 12 }} />
+  <div style={{ width: "100%", height: height ? `${height}px` : "100%" }}>
+    {/* This inner wrapper defines the exact drawing box */}
+    <div
+      style={{
+        width: "100%",
+        height: "100%",
+        position: "relative",
+        paddingLeft: 8,
+        paddingRight: 12, // give room for price scale
+      }}
+    >
+      <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
     </div>
-  );
+  </div>
+);
 };
