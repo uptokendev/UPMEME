@@ -43,7 +43,7 @@ function tokensFromWeiSafe(wei: bigint | undefined | null): number {
 
 /**
  * Builds market-cap series in USD:
- * - derive circulating tokens from buys/sells
+ * - circulatingTokens += buyTokens; -= sellTokens
  * - mcapBNB = pricePerToken(BNB) * circulatingTokens
  * - mcapUSD = mcapBNB * bnbUsd
  */
@@ -51,8 +51,8 @@ function toMarketCapPointsUsd(trades: CurveTradePoint[], bnbUsd: number): ChartP
   if (!trades?.length || !Number.isFinite(bnbUsd) || bnbUsd <= 0) return [];
 
   const sorted = [...trades].sort((a, b) => {
-    if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-    if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
+    if ((a.timestamp ?? 0) !== (b.timestamp ?? 0)) return (a.timestamp ?? 0) - (b.timestamp ?? 0);
+    if ((a.blockNumber ?? 0) !== (b.blockNumber ?? 0)) return (a.blockNumber ?? 0) - (b.blockNumber ?? 0);
     return Number(a.logIndex ?? 0) - Number(b.logIndex ?? 0);
   });
 
@@ -64,8 +64,8 @@ function toMarketCapPointsUsd(trades: CurveTradePoint[], bnbUsd: number): ChartP
     circ += t.type === "sell" ? -delta : delta;
     if (circ < 0) circ = 0;
 
-    const mcBnb = Number(t.pricePerToken ?? 0) * circ;
-    const mcUsd = mcBnb * bnbUsd;
+    const priceBnb = Number(t.pricePerToken ?? 0);
+    const mcUsd = priceBnb * circ * bnbUsd;
 
     const tsMs = Number(t.timestamp ?? 0) * 1000;
     if (!Number.isFinite(tsMs) || tsMs <= 0) continue;
@@ -78,7 +78,7 @@ function toMarketCapPointsUsd(trades: CurveTradePoint[], bnbUsd: number): ChartP
 }
 
 /**
- * Mock mode fallback: uses pricePerToken as "shape" and assumes a small growing supply.
+ * Mock fallback: uses pricePerToken as "shape" and assumes a small growing supply.
  */
 function toMarketCapPointsUsdMock(events: MockCurveEvent[], bnbUsd: number): ChartPoint[] {
   if (!events?.length || !Number.isFinite(bnbUsd) || bnbUsd <= 0) return [];
@@ -86,15 +86,19 @@ function toMarketCapPointsUsdMock(events: MockCurveEvent[], bnbUsd: number): Cha
 
   let circ = 0;
   const out: ChartPoint[] = [];
+
   for (const e of sorted) {
-    circ += 1; // 1 token per event (simple)
+    circ += 1; // simple mock supply increment
     const priceBnb = Number(e.pricePerToken ?? 0);
     const mcUsd = priceBnb * circ * bnbUsd;
+
     const tsMs = Number(e.timestamp ?? 0) * 1000;
     if (!Number.isFinite(tsMs) || tsMs <= 0) continue;
     if (!Number.isFinite(mcUsd) || mcUsd <= 0) continue;
+
     out.push({ ts: tsMs, value: mcUsd });
   }
+
   return out;
 }
 
@@ -106,18 +110,26 @@ export const CurvePriceChart = ({
   loadingOverride,
   errorOverride,
 }: CurvePriceChartProps) => {
+  // HOOKS MUST ALWAYS RUN BEFORE ANY RETURN
   const [tf, setTf] = useState<TimeframeKey>("1m");
   const bucketSec = useMemo(() => TIMEFRAMES.find((t) => t.key === tf)?.seconds ?? 60, [tf]);
 
-  // Live data (disabled when TokenDetails passes override to avoid duplicate websockets)
   const live = useCurveTrades(campaignAddress, { enabled: !curvePointsOverride && !mockMode });
   const livePoints = curvePointsOverride ?? live.points;
   const liveLoading = loadingOverride ?? live.loading;
   const liveError = errorOverride ?? live.error;
 
-  // USD conversion
   const { price: bnbUsd, loading: bnbUsdLoading, error: bnbUsdError } = useBnbUsdPrice(!mockMode);
 
+  const chartPoints: ChartPoint[] = useMemo(() => {
+    const usd = bnbUsd ?? 0;
+    if (!usd || usd <= 0) return [];
+
+    if (mockMode) return toMarketCapPointsUsdMock(mockEvents || [], usd);
+    return toMarketCapPointsUsd(livePoints || [], usd);
+  }, [mockMode, mockEvents, livePoints, bnbUsd]);
+
+  // Render states (SAFE: hooks already executed)
   if (mockMode && (!mockEvents || mockEvents.length === 0)) {
     return (
       <div className="flex items-center justify-center h-full text-xs text-muted-foreground p-4">
@@ -157,11 +169,6 @@ export const CurvePriceChart = ({
       </div>
     );
   }
-
-  const chartPoints: ChartPoint[] = useMemo(() => {
-    if (mockMode) return toMarketCapPointsUsdMock(mockEvents || [], bnbUsd ?? 0);
-    return toMarketCapPointsUsd(livePoints || [], bnbUsd ?? 0);
-  }, [mockMode, mockEvents, livePoints, bnbUsd]);
 
   if (chartPoints.length === 0) {
     return (
