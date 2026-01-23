@@ -111,7 +111,7 @@ export const CurveTradesChart: React.FC<Props> = ({ points, intervalSec, height 
   rightOffset: 6,
 
   // MORE GAP BETWEEN CANDLES
-  barSpacing: 10,
+  barSpacing: 15,
   minBarSpacing: 6,
 
   lockVisibleTimeRangeOnResize: true,
