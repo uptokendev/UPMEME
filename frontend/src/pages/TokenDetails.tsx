@@ -569,28 +569,31 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
 
     const pct = (bal: bigint) => (totalBal > 0n ? Number((bal * 10000n) / totalBal) / 100 : 0);
 
-    const topUsers = holders.slice(0, 6).map((h) => ({
-      address: h.address,
-      label: shortAddr(h.address),
-      pct: pct(h.bal),
-      isLp: false as const,
-    }));
+    const MAX_TOP = 20;
+const lpIncluded = lpBal > 0n;
+const maxUsers = Math.max(0, MAX_TOP - (lpIncluded ? 1 : 0));
 
-    const othersBal = holders.slice(6).reduce((acc, x) => acc + x.bal, 0n);
+const topUsers = holders.slice(0, maxUsers).map((h) => ({
+  address: h.address,
+  label: shortAddr(h.address),
+  pct: pct(h.bal),
+  isLp: false as const,
+}));
 
-    const top = [
-      ...(lpBal > 0n
-        ? [
-            {
-              address: "liquidity-pool",
-              label: "Liquidity pool",
-              pct: pct(lpBal),
-              isLp: true as const,
-            },
-          ]
-        : []),
-      ...topUsers,
-    ];
+const othersBal = holders.slice(maxUsers).reduce((acc, x) => acc + x.bal, 0n);
+
+const top = [
+  ...(lpIncluded
+    ? [{
+        address: "liquidity-pool",
+        label: "Liquidity pool",
+        pct: pct(lpBal),
+        isLp: true as const,
+      }]
+    : []),
+  ...topUsers,
+];
+
 
     return {
       top,
@@ -1591,18 +1594,18 @@ setTxs(next);
           </Card>
 
           {/* Activity: Comments / Trades */}
-        <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5 overflow-y-auto min-h-0 flex flex-col" style={{ flex: "1" }}>
+        <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5">
           <Tabs
             value={activityTab}
             onValueChange={(v) => setActivityTab(v as any)}
-            className="h-full flex flex-col min-h-0"
+            className="w-full"
           >
             <TabsList className="grid w-full grid-cols-2 mb-3">
               <TabsTrigger value="comments">Comments</TabsTrigger>
               <TabsTrigger value="trades">Trades</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="comments" className="flex-1 min-h-0 overflow-y-auto">
+            <TabsContent value="comments" className="mt-0">
               {campaign?.campaign ? (
                 <TokenComments
                   chainId={Number(wallet.chainId ?? 97)}
@@ -1614,8 +1617,8 @@ setTxs(next);
               )}
             </TabsContent>
 
-            <TabsContent value="trades" className="flex-1 min-h-0 overflow-y-auto">
-              <div className="overflow-auto h-full">
+            <TabsContent value="trades" className="mt-0">
+              <div>
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border">
@@ -1890,9 +1893,7 @@ setTxs(next);
 
           {/* Holder Distribution - 1/5 height */}
           <Card
-            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4 flex flex-col min-h-0"
-            style={{ flex: "1" }}
-          >
+            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4">
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
               <h3 className="text-sm font-retro text-foreground">Holder Distribution</h3>
               <span className="text-xs text-muted-foreground">
@@ -1901,7 +1902,7 @@ setTxs(next);
             </div>
 
             {holderDistribution.top.length ? (
-              <div className="space-y-3 overflow-auto flex-1 min-h-0 pr-1">
+              <div className="space-y-3">
                 {holderDistribution.top.map((h, idx) => {
                   const rank = h.isLp ? null : holderDistribution.hasLp ? idx : idx + 1;
 
