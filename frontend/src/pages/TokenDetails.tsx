@@ -1822,19 +1822,10 @@ setTxs(next);
 
             <div className="text-xs text-muted-foreground space-y-1">
               <div className="flex items-center justify-between">
-                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)}in bonding curve</span>
+                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)} in bonding curve</span>
                 <span>Target: {formatBnbFromWei(curveProgress.targetWei ?? undefined)}</span>
               </div>
-              <div className="flex items-center justify-between">
-                <span>
-                  Curve: {formatTokenFromWei(curveProgress.curveSupplyWei ?? undefined)} {tokenData.ticker}
-                </span>
-              </div>
             </div>
-
-            <p className="text-xs text-muted-foreground">
-              Graduation triggers when either the reserve reaches the target (BNB) or the curve supply is fully sold.
-            </p>
           </Card>
 
           {/* Flywheel Statistics - 2/5 height */}
