@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { fetchUserProfile, type UserProfile } from "@/lib/profileApi";
 import twitterIcon from "@/assets/social/twitter.png";
 import { useLaunchpad } from "@/lib/launchpadClient";
 import type { CampaignInfo, CampaignMetrics, CampaignSummary, CampaignActivity } from "@/lib/launchpadClient";
@@ -93,57 +92,9 @@ const TokenDetails = () => {
   // Launchpad hooks + state for the on-chain data
   const { fetchCampaigns, fetchCampaignSummary, fetchCampaignMetrics, fetchCampaignActivity, buyTokens, sellTokens } = useLaunchpad();
   const wallet = useWallet();
-
   const [campaign, setCampaign] = useState<CampaignInfo | null>(null);
   const [metrics, setMetrics] = useState<CampaignMetrics | null>(null);
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
-
-  const creatorAddress = useMemo(() => {
-    const c: any = campaign as any;
-    const s: any = summary as any;
-    return (
-      c?.creator ??
-      c?.owner ??
-      c?.deployer ??
-      c?.createdBy ??
-      s?.creator ??
-      s?.owner ??
-      s?.deployer ??
-      null
-    ) as string | null;
-  }, [campaign, summary]);
-
-  const [creatorProfile, setCreatorProfile] = useState<UserProfile | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      if (!creatorAddress) {
-        setCreatorProfile(null);
-        return;
-      }
-
-      const chainId = Number(wallet.chainId ?? 97);
-      if (!Number.isFinite(chainId) || chainId <= 0) {
-        setCreatorProfile(null);
-        return;
-      }
-
-      try {
-        const p = await fetchUserProfile(chainId, creatorAddress);
-        if (!cancelled) setCreatorProfile(p);
-      } catch {
-        if (!cancelled) setCreatorProfile(null);
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [creatorAddress, wallet.chainId]);
-
   const [activity, setActivity] = useState<CampaignActivity | null>(null);
   const [activityTab, setActivityTab] = useState<"comments" | "trades">("comments");
   const [curveReserveWei, setCurveReserveWei] = useState<bigint | null>(null);
@@ -263,23 +214,13 @@ const TokenDetails = () => {
     //  - "1.23k BNB"
     //  - "1.23k"
     //  - "0.000123"
-    //
-    // IMPORTANT: avoid treating the leading "B" in "BNB" as a suffix.
-    const token = s.split(/\s+/)[0] ?? "";
-    const m = token.match(/^(-?\d+(?:\.\d+)?)([kKmMbBtT])?$/);
+    const m = s.match(/(-?\d+(?:\.\d+)?)(?:\s*([kKmMbBtT]))?/);
     if (!m) return null;
-
     const num = Number(m[1]);
     if (!Number.isFinite(num)) return null;
 
     const suf = (m[2] ?? "").toLowerCase();
-    const mult =
-      suf === "k" ? 1e3 :
-      suf === "m" ? 1e6 :
-      suf === "b" ? 1e9 :
-      suf === "t" ? 1e12 :
-      1;
-
+    const mult = suf === "k" ? 1e3 : suf === "m" ? 1e6 : suf === "b" ? 1e9 : suf === "t" ? 1e12 : 1;
     return num * mult;
   };
 
@@ -365,46 +306,6 @@ const TokenDetails = () => {
     return `${weeks}w`;
   };
 
-  const toTimestampSecs = (v: unknown): number | null => {
-    if (v == null) return null;
-
-    if (typeof v === "bigint") {
-      const n = Number(v);
-      if (!Number.isFinite(n) || n <= 0) return null;
-      return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
-    }
-
-    if (typeof v === "number") {
-      if (!Number.isFinite(v) || v <= 0) return null;
-      return v > 1e11 ? Math.floor(v / 1000) : Math.floor(v);
-    }
-
-    if (typeof v === "string") {
-      const s = v.trim();
-      if (!s) return null;
-
-      if (/^\d+$/.test(s)) {
-        const n = Number(s);
-        if (!Number.isFinite(n) || n <= 0) return null;
-        return n > 1e11 ? Math.floor(n / 1000) : Math.floor(n);
-      }
-
-      const ms = Date.parse(s);
-      if (!Number.isFinite(ms) || ms <= 0) return null;
-      return Math.floor(ms / 1000);
-    }
-
-    if (typeof v === "object") {
-      const anyV = v as any;
-      const nested =
-        anyV?.seconds ?? anyV?.secs ?? anyV?.timestamp ?? anyV?.time ?? anyV?.createdAt ?? anyV?.created_at;
-      return toTimestampSecs(nested);
-    }
-
-    return null;
-  };
-
-
   // Read curve trades for transactions + analytics (live mode)
   // Hook returns CurveTrade[] (your "@/types/token" Transaction type)
   const { points: liveCurvePoints, loading: liveCurveLoading, error: liveCurveError } = useCurveTrades(campaign?.campaign);
@@ -485,8 +386,7 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
       };
     }
 
-    const tsOf = (t: number) => (t > 1e11 ? Math.floor(t / 1000) : t); // tolerate ms timestamps
-    const sorted = [...points].sort((a, b) => tsOf(a.timestamp) - tsOf(b.timestamp));
+    const sorted = [...points].sort((a, b) => a.timestamp - b.timestamp);
     const latestTradePrice = sorted[sorted.length - 1]?.pricePerToken;
     const end = endPrice ?? latestTradePrice ?? 0;
 
@@ -501,12 +401,12 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
       const startTs = now - windows[k];
 
       // Start price: last trade at/before the window start, else first trade in the window.
-      const before = [...sorted].reverse().find((p) => tsOf(p.timestamp) <= startTs);
-      const within = sorted.find((p) => tsOf(p.timestamp) >= startTs);
+      const before = [...sorted].reverse().find((p) => p.timestamp <= startTs);
+      const within = sorted.find((p) => p.timestamp >= startTs);
       const startPrice = (before ?? within)?.pricePerToken;
 
       const volumeWei = sorted
-        .filter((p) => tsOf(p.timestamp) >= startTs)
+        .filter((p) => p.timestamp >= startTs)
         .reduce((acc, p) => acc + (p.nativeWei ?? 0n), 0n);
 
       const start = startPrice ?? end;
@@ -556,48 +456,10 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
       metrics: timeframeTiles,
     };
   }, [campaign, curveReserveWei, metrics, summary, timeframeTiles, rtStats]);
-
-  const creatorInfo = useMemo(() => {
-    const c: any = campaign as any;
-    const s: any = summary as any;
-
-    const createdRaw =
-      c?.createdAtSecs ??
-      c?.createdAtSec ??
-      c?.createdAt ??
-      c?.created_at ??
-      c?.createdAtMs ??
-      s?.createdAtSecs ??
-      s?.createdAtSec ??
-      s?.createdAt ??
-      s?.created_at ??
-      s?.createdAtMs ??
-      null;
-
-    const createdSecs = toTimestampSecs(createdRaw);
-    const ago = createdSecs ? formatAgo(createdSecs) : "—";
-
-    const displayName = String(creatorProfile?.displayName ?? "").trim();
-    const avatarUrl = String(creatorProfile?.avatarUrl ?? "").trim();
-
-    const label = displayName ? displayName : creatorAddress ? shorten(String(creatorAddress)) : "—";
-
-    return {
-      address: creatorAddress ? String(creatorAddress) : null,
-      label,
-      avatar: avatarUrl || "/placeholder.svg",
-      createdSecs,
-      ago,
-    };
-  }, [campaign, summary, creatorAddress, creatorProfile]);
-
-
   // Keep USD reference price available for UI conversions and ATH tracking.
   // (Cached + throttled inside the hook.)
   const { price: bnbUsdPrice, loading: bnbUsdLoading } = useBnbUsdPrice(true);
-  
 
-  
   const marketCapDisplay = useMemo(() => {
     const bnbLabel = tokenData.marketCap;
 
@@ -678,7 +540,8 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
     const shortAddr = (a: string) =>
       a && a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a;
 
-    // Estimated balances derived from bonding curve trades only (no transfers)
+    // Estimated balances derived from bonding curve trades only (no transfers).
+    // NOTE: This is a best-effort view and does not include transfers.
     const balances = new Map<string, bigint>();
 
     for (const p of liveCurvePointsSafe) {
@@ -686,9 +549,8 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
       if (!addr) continue;
 
       const prev = balances.get(addr) ?? 0n;
-      const delta = p.tokensWei ?? 0n; // ✅ tokensWei (not tokenWei)
-      const isBuy = (p.type ?? "buy") === "buy"; // ✅ type (not side)
-
+      const delta = p.tokensWei ?? 0n; // tokensWei
+      const isBuy = (p.type ?? "buy") === "buy"; // type
       balances.set(addr, isBuy ? prev + delta : prev - delta);
     }
 
@@ -697,26 +559,47 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
       .map(([address, bal]) => ({ address, bal }))
       .sort((a, b) => (a.bal === b.bal ? 0 : a.bal > b.bal ? -1 : 1));
 
-    const totalBal = holders.reduce((acc, x) => acc + x.bal, 0n);
+    const holdersBal = holders.reduce((acc, x) => acc + x.bal, 0n);
 
-    const pct = (bal: bigint) =>
-      totalBal > 0n ? Number((bal * 10000n) / totalBal) / 100 : 0;
+    // Liquidity pool allocation (token wei) from on-chain metrics (if present).
+    // This is the amount intended for the LP at graduation.
+    const lpBal = metrics?.liquiditySupply ?? 0n;
 
-    const top = holders.slice(0, 6).map((h) => ({
+    const totalBal = holdersBal + lpBal;
+
+    const pct = (bal: bigint) => (totalBal > 0n ? Number((bal * 10000n) / totalBal) / 100 : 0);
+
+    const topUsers = holders.slice(0, 6).map((h) => ({
       address: h.address,
       label: shortAddr(h.address),
       pct: pct(h.bal),
+      isLp: false as const,
     }));
 
     const othersBal = holders.slice(6).reduce((acc, x) => acc + x.bal, 0n);
-    const othersPct = pct(othersBal);
+
+    const top = [
+      ...(lpBal > 0n
+        ? [
+            {
+              address: "liquidity-pool",
+              label: "Liquidity pool",
+              pct: pct(lpBal),
+              isLp: true as const,
+            },
+          ]
+        : []),
+      ...topUsers,
+    ];
 
     return {
       top,
-      othersPct,
+      othersPct: pct(othersBal),
       totalHolders: holders.length,
+      hasLp: lpBal > 0n,
     };
-  }, [liveCurvePointsSafe]);
+  }, [liveCurvePointsSafe, metrics?.liquiditySupply]);
+
 
   // Reserve / "liquidity" shown on the page: BNB held by the campaign contract (pre-graduation)
   useEffect(() => {
@@ -1074,40 +957,6 @@ setTxs(next);
     };
   }, [isDexStage, metrics?.sold, metrics?.curveSupply, metrics?.graduationTarget, curveReserveWei]);
 
-  const remainingCurveWei = useMemo(() => {
-    // Remaining BNB needed to reach the graduation target (reserve-based trigger).
-    // If already in DEX stage, remaining is 0.
-    if (isDexStage) return 0n;
-
-    const targetWei = curveProgress.targetWei ?? 0n;
-    const reserveWei = curveProgress.reserveWei ?? 0n;
-    return targetWei > reserveWei ? targetWei - reserveWei : 0n;
-  }, [isDexStage, curveProgress.targetWei, curveProgress.reserveWei]);
-
-  const remainingCurveLabel = useMemo(() => {
-    const bnbLabel = formatBnbFromWei(remainingCurveWei);
-
-    let remainingBnbNum: number | null = null;
-    try {
-      const n = Number(ethers.formatEther(remainingCurveWei));
-      remainingBnbNum = Number.isFinite(n) ? n : null;
-    } catch {
-      remainingBnbNum = null;
-    }
-
-    const usdLabel =
-      remainingBnbNum != null && bnbUsdPrice
-        ? formatCompactUsd(remainingBnbNum * bnbUsdPrice)
-        : bnbUsdLoading
-        ? "…"
-        : "—";
-
-    // Primary follows the denomination toggle; secondary shows the other denomination.
-    if (displayDenom === "USD") return { primary: usdLabel, secondary: bnbLabel };
-    return { primary: bnbLabel, secondary: usdLabel };
-  }, [remainingCurveWei, displayDenom, bnbUsdPrice, bnbUsdLoading]);
-
-
   const liquidityLabel = isDexStage ? "Liquidity" : "Reserve";
   const liquidityValue = (() => {
     if (!isDexStage) return tokenData.liquidity;
@@ -1422,11 +1271,11 @@ setTxs(next);
   }
 
   return (
-    <div className="h-full w-full overflow-y-auto overflow-x-hidden flex flex-col px-3 md:px-6 pt-3 md:pt-6 gap-3 md:gap-4 pb-6">
+    <div className="h-full w-full overflow-hidden flex flex-col px-3 md:px-6 pt-3 md:pt-6 gap-3 md:gap-4">
       {/* Main Content - Single Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 md:gap-4 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-3 md:gap-4 flex-1 min-h-0">
         {/* Left Column - Header, Chart & Transactions (3/4 width) */}
-        <div className="lg:col-span-3 flex flex-col gap-3 md:gap-4">
+        <div className="lg:col-span-3 flex flex-col gap-3 md:gap-4 min-h-0">
           {/* Top Header Bar */}
           <Card className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-3 md:p-6 flex-shrink-0">
             <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-6">
@@ -1486,24 +1335,13 @@ setTxs(next);
                         />
                       </Button>
                     )}
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Link to={creatorInfo.address ? `/profile?address=${creatorInfo.address}` : "/profile"} className="flex items-center gap-2 rounded-full border border-border/40 bg-muted/20 hover:bg-muted/30 px-2 py-1 transition-colors min-w-0" aria-label="View creator profile">
-                        <img
-                          src={creatorInfo.avatar}
-                          alt={creatorInfo.label}
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src = "/placeholder.svg";
-                          }}
-                          className="h-5 w-5 md:h-6 md:w-6 rounded-full ring-1 ring-border/30 flex-shrink-0"
-                        />
-                        <span className="text-[10px] md:text-xs font-mono text-foreground truncate max-w-[140px]">
-                          {creatorInfo.label}
-                        </span>
-                      </Link>
-                      <span className="text-[10px] md:text-xs text-muted-foreground whitespace-nowrap">
-                        {creatorInfo.ago}
-                      </span>
-                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 md:h-7 px-2 md:px-3 text-[10px] md:text-xs"
+                    >
+                      Community
+                    </Button>
                   </div>
                 </div>
               </div>
@@ -1686,6 +1524,7 @@ setTxs(next);
           {/* Chart */}
           <Card
             className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-0 overflow-hidden flex flex-col min-h-[320px]"
+            style={{ flex: isMobile ? "3" : "2" }}
           >
             <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-card/20">
               <div className="flex items-center gap-2 min-w-0">
@@ -1724,7 +1563,7 @@ setTxs(next);
               </div>
             </div>
 
-            <div className="h-[320px] md:h-[420px]">
+            <div className="flex-1 min-h-0">
               {isDexStage ? (
                 chartUrl ? (
                   <iframe
@@ -1752,18 +1591,18 @@ setTxs(next);
           </Card>
 
           {/* Activity: Comments / Trades */}
-        <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5 flex flex-col">
+        <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5 min-h-0 flex flex-col" style={{ flex: "1" }}>
           <Tabs
             value={activityTab}
             onValueChange={(v) => setActivityTab(v as any)}
-            className="flex flex-col"
+            className="h-full flex flex-col min-h-0"
           >
             <TabsList className="grid w-full grid-cols-2 mb-3">
               <TabsTrigger value="comments">Comments</TabsTrigger>
               <TabsTrigger value="trades">Trades</TabsTrigger>
             </TabsList>
 
-            <TabsContent value="comments" className="mt-0">
+            <TabsContent value="comments" className="flex-1 min-h-0 overflow-hidden">
               {campaign?.campaign ? (
                 <TokenComments
                   chainId={Number(wallet.chainId ?? 97)}
@@ -1775,8 +1614,8 @@ setTxs(next);
               )}
             </TabsContent>
 
-            <TabsContent value="trades" className="mt-0">
-              <div className="overflow-x-auto">
+            <TabsContent value="trades" className="flex-1 min-h-0 overflow-hidden">
+              <div className="overflow-auto h-full">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border">
@@ -1821,9 +1660,9 @@ setTxs(next);
         </div>
 
         {/* Right Column - Trading Panel & Stats (1/3 width) */}
-        <div className="lg:col-span-1 flex flex-col gap-4">
+        <div className="lg:col-span-1 flex flex-col gap-4 min-h-0">
           {/* Trading Panel - 2/5 height */}
-          <Card className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4">
+          <Card className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4" style={{ flex: "2" }}>
             <Tabs value={tradeTab} onValueChange={handleTradeTabChange}>
               <TabsList className="grid w-full grid-cols-2 mb-3">
                 <TabsTrigger value="buy" className="text-sm">Buy</TabsTrigger>
@@ -1977,7 +1816,7 @@ setTxs(next);
             </Tabs>
           </Card>
 
-          <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5 flex flex-col gap-3">
+          <Card className="bg-muted/50 border-muted/50 rounded-3xl shadow-sm p-5 min-h-0 flex flex-col gap-3" style={{ flex: "1" }}>
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold">Bonding curve progress</h3>
               <span className="text-xs text-muted-foreground">{curveProgress.matured ? "Matured" : `${curveProgress.pct.toFixed(2)}%`}</span>
@@ -1986,21 +1825,31 @@ setTxs(next);
             <div className="h-2 w-full rounded-full bg-muted/30 border border-border/40 overflow-hidden">
               <div
                 className="h-full rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.65),rgba(255,255,255,0.25),rgba(255,255,255,0.65))] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.25),rgba(255,255,255,0.08),rgba(255,255,255,0.25))]"
-                style={{ width: `${Math.max(0, Math.min(100, curveProgress.pct))}%`, minWidth: curveProgress.pct > 0 ? "1px" : undefined }}
+                style={{ width: `${Math.max(0, Math.min(100, curveProgress.pct))}%` }}
               />
             </div>
 
             <div className="text-xs text-muted-foreground space-y-1">
               <div className="flex items-center justify-between">
-                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)} in bonding curve</span>
-                <span className="text-right"><span className="text-muted-foreground">Remaining:</span>{" "}{remainingCurveLabel.primary}</span>
+                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)}in bonding curve</span>
+                <span>Target: {formatBnbFromWei(curveProgress.targetWei ?? undefined)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span>
+                  Curve: {formatTokenFromWei(curveProgress.curveSupplyWei ?? undefined)} {tokenData.ticker}
+                </span>
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              Graduation triggers when either the reserve reaches the target (BNB) or the curve supply is fully sold.
+            </p>
           </Card>
 
           {/* Flywheel Statistics - 2/5 height */}
           <Card
-            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4 flex flex-col"
+            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4 min-h-0 flex flex-col"
+            style={{ flex: "2" }}
           >
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
               <h3 className="text-sm font-retro text-foreground">Flywheel</h3>
@@ -2041,7 +1890,8 @@ setTxs(next);
 
           {/* Holder Distribution - 1/5 height */}
           <Card
-            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4 flex flex-col"
+            className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4 flex flex-col min-h-0"
+            style={{ flex: "1" }}
           >
             <div className="flex items-center justify-between mb-3 flex-shrink-0">
               <h3 className="text-sm font-retro text-foreground">Holder Distribution</h3>
@@ -2052,17 +1902,32 @@ setTxs(next);
 
             {holderDistribution.top.length ? (
               <div className="space-y-3 overflow-auto flex-1 pr-1">
-                {holderDistribution.top.map((h, idx) => (
-                  <div key={h.address} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-mono">
-                        {idx + 1}. {h.label}
-                      </span>
-                      <span className="font-mono text-muted-foreground">{h.pct.toFixed(2)}%</span>
+                {holderDistribution.top.map((h, idx) => {
+                  const rank = h.isLp ? null : holderDistribution.hasLp ? idx : idx + 1;
+
+                  return (
+                    <div key={h.address} className="space-y-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-mono min-w-0">
+                          {rank != null ? `${rank}. ` : ""}
+
+                          {h.isLp ? (
+                            <span className="text-foreground">{h.label}</span>
+                          ) : (
+                            <Link
+                              to={`/profile?address=${h.address}`}
+                              className="text-foreground hover:underline underline-offset-4"
+                            >
+                              {h.label}
+                            </Link>
+                          )}
+                        </span>
+                        <span className="font-mono text-muted-foreground">{h.pct.toFixed(2)}%</span>
+                      </div>
+                      <Progress value={h.pct} className="h-1.5" />
                     </div>
-                    <Progress value={h.pct} className="h-1.5" />
-                  </div>
-                ))}
+                  );
+                })}
                 {holderDistribution.othersPct > 0 ? (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -2076,6 +1941,10 @@ setTxs(next);
             ) : (
               <div className="text-xs text-muted-foreground">No holder data yet.</div>
             )}
+
+            <p className="text-[11px] text-muted-foreground mt-3 flex-shrink-0">
+              Estimated from bonding-curve trades (excludes transfers).
+            </p>
           </Card>
         </div>
       </div>
