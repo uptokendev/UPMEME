@@ -1810,13 +1810,10 @@ setTxs(next);
 
             <div className="text-xs text-muted-foreground space-y-1">
               <div className="flex items-center justify-between">
-                <span>Raised: {formatBnbFromWei(curveProgress.reserveWei ?? undefined)}</span>
+                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)}in bonding curve</span>
                 <span>Target: {formatBnbFromWei(curveProgress.targetWei ?? undefined)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span>
-                  Sold: {formatTokenFromWei(curveProgress.soldWei ?? undefined)} {tokenData.ticker}
-                </span>
                 <span>
                   Curve: {formatTokenFromWei(curveProgress.curveSupplyWei ?? undefined)} {tokenData.ticker}
                 </span>
