@@ -94,6 +94,10 @@ const TokenDetails = () => {
   const { fetchCampaigns, fetchCampaignSummary, fetchCampaignMetrics, fetchCampaignActivity, buyTokens, sellTokens } = useLaunchpad();
   const wallet = useWallet();
 
+  const [campaign, setCampaign] = useState<CampaignInfo | null>(null);
+  const [metrics, setMetrics] = useState<CampaignMetrics | null>(null);
+  const [summary, setSummary] = useState<CampaignSummary | null>(null);
+
   const creatorAddress = useMemo(() => {
     const c: any = campaign as any;
     const s: any = summary as any;
@@ -107,7 +111,7 @@ const TokenDetails = () => {
       s?.deployer ??
       null
     ) as string | null;
-  }, [campaign, summary, creatorProfile]);
+  }, [campaign, summary]);
 
   const [creatorProfile, setCreatorProfile] = useState<UserProfile | null>(null);
 
@@ -115,14 +119,21 @@ const TokenDetails = () => {
     let cancelled = false;
 
     const load = async () => {
-      if (!creatorAddress || !wallet.chainId) {
+      if (!creatorAddress) {
         setCreatorProfile(null);
         return;
       }
+
+      const chainId = Number(wallet.chainId ?? 97);
+      if (!Number.isFinite(chainId) || chainId <= 0) {
+        setCreatorProfile(null);
+        return;
+      }
+
       try {
-        const p = await fetchUserProfile(wallet.chainId, creatorAddress);
+        const p = await fetchUserProfile(chainId, creatorAddress);
         if (!cancelled) setCreatorProfile(p);
-      } catch (e) {
+      } catch {
         if (!cancelled) setCreatorProfile(null);
       }
     };
@@ -133,9 +144,6 @@ const TokenDetails = () => {
     };
   }, [creatorAddress, wallet.chainId]);
 
-  const [campaign, setCampaign] = useState<CampaignInfo | null>(null);
-  const [metrics, setMetrics] = useState<CampaignMetrics | null>(null);
-  const [summary, setSummary] = useState<CampaignSummary | null>(null);
   const [activity, setActivity] = useState<CampaignActivity | null>(null);
   const [activityTab, setActivityTab] = useState<"comments" | "trades">("comments");
   const [curveReserveWei, setCurveReserveWei] = useState<bigint | null>(null);
@@ -553,18 +561,6 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
     const c: any = campaign as any;
     const s: any = summary as any;
 
-    const address =
-      c?.creator ??
-      c?.owner ??
-      c?.deployer ??
-      c?.createdBy ??
-      s?.creator ??
-      s?.owner ??
-      s?.deployer ??
-      null;
-    const displayName = String(creatorProfile?.displayName ?? "").trim();
-    const avatarUrl = String(creatorProfile?.avatarUrl ?? "").trim();
-
     const createdRaw =
       c?.createdAtSecs ??
       c?.createdAtSec ??
@@ -581,16 +577,20 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
     const createdSecs = toTimestampSecs(createdRaw);
     const ago = createdSecs ? formatAgo(createdSecs) : "—";
 
-    const label = displayName ? displayName : address ? shorten(String(address)) : "—";
+    const displayName = String(creatorProfile?.displayName ?? "").trim();
+    const avatarUrl = String(creatorProfile?.avatarUrl ?? "").trim();
+
+    const label = displayName ? displayName : creatorAddress ? shorten(String(creatorAddress)) : "—";
 
     return {
-      address: address ? String(address) : null,
+      address: creatorAddress ? String(creatorAddress) : null,
       label,
       avatar: avatarUrl || "/placeholder.svg",
       createdSecs,
       ago,
     };
-  }, [campaign, summary]);
+  }, [campaign, summary, creatorAddress, creatorProfile]);
+
 
   // Keep USD reference price available for UI conversions and ATH tracking.
   // (Cached + throttled inside the hook.)

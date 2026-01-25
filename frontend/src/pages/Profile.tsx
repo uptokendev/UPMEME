@@ -684,25 +684,25 @@ const Profile = () => {
             </div>
 
             {/* Edit Button */}
-          {isOwnProfile ? (
-
-            <Button
-              onClick={handleEdit}
-              className="bg-muted hover:bg-muted/80 text-foreground font-retro w-full md:w-auto"
-            >
-              edit
-            </Button>
-
-            <EditProfileDialog
-              open={editOpen}
-              onOpenChange={setEditOpen}
-              initialUsername={profile?.displayName ?? ""}
-              initialBio={profile?.bio ?? ""}
-              saving={savingProfile}
-              onSave={handleSaveProfile}
-            />
+            {isOwnProfile ? (
+              <div className="flex items-start justify-end w-full md:w-auto">
+                <Button
+                  onClick={handleEdit}
+                  className="bg-muted hover:bg-muted/80 text-foreground font-retro w-full md:w-auto"
+                >
+                  edit
+                </Button>
+                <EditProfileDialog
+                  open={editOpen}
+                  onOpenChange={setEditOpen}
+                  initialUsername={profile?.displayName ?? ""}
+                  initialBio={profile?.bio ?? ""}
+                  saving={savingProfile}
+                  onSave={handleSaveProfile}
+                />
+              </div>
+            ) : null}
           </div>
-          ) : null}
 
 
           {/* Tabs */}
