@@ -459,7 +459,9 @@ const liveCurvePointsSafe: CurveTradePoint[] = Array.isArray(liveCurvePoints) ? 
   // Keep USD reference price available for UI conversions and ATH tracking.
   // (Cached + throttled inside the hook.)
   const { price: bnbUsdPrice, loading: bnbUsdLoading } = useBnbUsdPrice(true);
+  
 
+  
   const marketCapDisplay = useMemo(() => {
     const bnbLabel = tokenData.marketCap;
 
