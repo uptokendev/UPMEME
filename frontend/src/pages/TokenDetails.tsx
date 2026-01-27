@@ -581,17 +581,17 @@ const bnbUsd = useMemo(() => {
       .map(([address, bal]) => ({ address, bal }))
       .sort((a, b) => (a.bal === b.bal ? 0 : a.bal > b.bal ? -1 : 1));
 
-    const totalBal = holders.reduce((acc, x) => acc + x.bal, 0n);
+    const holdersBal = holders.reduce((acc, x) => acc + x.bal, 0n);
 
     // Liquidity pool allocation (token wei) from on-chain metrics (if present).
     // This is the amount intended for the LP at graduation.
-    // const lpBal = metrics?.liquiditySupply ?? 0n;
+    const lpBal = metrics?.liquiditySupply ?? 0n;
 
-    // const totalBal = holdersBal + lpBal;
+    const totalBal = holdersBal + lpBal;
 
     const pct = (bal: bigint) => (totalBal > 0n ? Number((bal * 10000n) / totalBal) / 100 : 0);
 
-    const top = holders.slice(0, 6).map((h) => ({
+    const topUsers = holders.slice(0, 6).map((h) => ({
       address: h.address,
       label: shortAddr(h.address),
       pct: pct(h.bal),
@@ -600,14 +600,27 @@ const bnbUsd = useMemo(() => {
 
     const othersBal = holders.slice(6).reduce((acc, x) => acc + x.bal, 0n);
 
-    const othersPct = pct(othersBal);
+    const top = [
+      ...(lpBal > 0n
+        ? [
+            {
+              address: "liquidity-pool",
+              label: "Liquidity pool",
+              pct: pct(lpBal),
+              isLp: true as const,
+            },
+          ]
+        : []),
+      ...topUsers,
+    ];
 
     return {
       top,
-      othersPct,
+      othersPct: pct(othersBal),
       totalHolders: holders.length,
+      hasLp: lpBal > 0n,
     };
-  }, [liveCurvePointsSafe]);
+  }, [liveCurvePointsSafe, metrics?.liquiditySupply]);
 
 
   // Reserve / "liquidity" shown on the page: BNB held by the campaign contract (pre-graduation)
@@ -1902,7 +1915,7 @@ style={!isMobile ? { flex: "2" } : undefined}
             {holderDistribution.top.length ? (
               <div className="space-y-3 overflow-auto flex-1 min-h-0 pr-1">
                 {holderDistribution.top.map((h, idx) => {
-                  const rank = h.isLp ? null : holderDistribution ? idx : idx + 1;
+                  const rank = h.isLp ? null : holderDistribution.hasLp ? idx : idx + 1;
 
                   return (
                     <div key={h.address} className="space-y-1">
