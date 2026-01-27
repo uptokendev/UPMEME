@@ -1877,25 +1877,32 @@ style={!isMobile ? { flex: "2" } : undefined}
           </Card>
 
           <Card className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold">Bonding curve progress</h3>
-              <span className="text-xs text-muted-foreground">{curveProgress.matured ? "Matured" : `${curveProgress.pct.toFixed(2)}%`}</span>
-            </div>
-            {/* Custom progress bar (more visible than the default Progress theme) */}
-            <div className="h-2 w-full rounded-full bg-muted/30 border border-border/40 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.65),rgba(255,255,255,0.25),rgba(255,255,255,0.65))] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.25),rgba(255,255,255,0.08),rgba(255,255,255,0.25))]"
-                style={{ width: `${Math.max(0, Math.min(100, curveProgress.pct))}%` }}
-              />
-            </div>
+  <div className="flex flex-col gap-3">
+    <div className="flex items-center justify-between">
+      <h3 className="text-sm font-semibold">Bonding Curve Progress</h3>
+      <span className="text-xs text-muted-foreground">
+        {curveProgress.matured ? "Matured" : `${curveProgress.pct.toFixed(2)}%`}
+      </span>
+    </div>
 
-            <div className="text-xs text-muted-foreground space-y-1">
-              <div className="flex items-center justify-between">
-                <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)} in bonding curve</span>
-                 <span className="text-right"><span className="text-muted-foreground">Remaining:</span>{" "}{remainingCurveLabel.primary}</span>
-              </div>
-            </div>
-          </Card>
+    <div className="h-2 w-full rounded-full bg-muted/30 border border-border/40 overflow-hidden">
+      <div
+        className="h-full rounded-full bg-[linear-gradient(90deg,rgba(255,255,255,0.65),rgba(255,255,255,0.25),rgba(255,255,255,0.65))] dark:bg-[linear-gradient(90deg,rgba(255,255,255,0.25),rgba(255,255,255,0.08),rgba(255,255,255,0.25))]"
+        style={{ width: `${Math.max(0, Math.min(100, curveProgress.pct))}%`, minWidth: curveProgress.pct > 0 ? "1px" : undefined }}
+      />
+    </div>
+
+    <div className="text-xs text-muted-foreground">
+      <div className="flex items-center justify-between">
+        <span>{formatBnbFromWei(curveProgress.reserveWei ?? undefined)} in bonding curve</span>
+        <span className="text-right">
+          <span className="text-muted-foreground">Remaining:</span>{" "}
+          {remainingCurveLabel.primary}
+        </span>
+      </div>
+    </div>
+  </div>
+</Card>
 
           {/* Flywheel Statistics - 2/5 height */}
           <Card className="bg-card/30 backdrop-blur-md rounded-2xl border border-border p-4">
