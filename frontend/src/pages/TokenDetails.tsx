@@ -985,7 +985,7 @@ setTxs(next);
   }, [displayDenom, liquidityValue, bnbUsdPrice, bnbUsdLoading]);
 ;
 
-  const chartTitle = isDexStage ? "DEX chart" : "Bonding curve";
+  const chartTitle = isDexStage ? "DEX chart" : "";
   const stagePill = isDexStage ? "Graduated" : "Bonding";
 
   // Quote (buy: BNB cost; sell: BNB payout) for the entered token amount
