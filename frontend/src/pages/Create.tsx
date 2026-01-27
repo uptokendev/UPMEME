@@ -45,8 +45,8 @@ const Create = () => {
   const wallet = useWallet();
   const { createCampaign, fetchCampaigns } = useLaunchpad();
 
-  // Optional creator initial buy (tokens, 18 decimals) performed in the same tx.
-  const [initialBuyTokens, setInitialBuyTokens] = useState("");
+  // Optional creator initial buy (in BNB) performed in the same tx.
+  const [initialBuyBnb, setInitialBuyBnb] = useState("");
 
   // UPDATED: async and actually calls the contract
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -126,13 +126,12 @@ const Create = () => {
         xAccount: formData.twitter || "",
         website: formData.website || "",
         extraLink: formData.otherLink || "",
-        initialBuyTokens,
+        initialBuyBnb, // <-- BNB string, e.g. "0.05"
         basePriceWei: 0n,
         priceSlopeWei: 0n,
         graduationTargetWei: 0n,
-        lpReceiver: "", // lets factory use msg.sender logic
-      });
-
+        lpReceiver: "",
+      });   
       toast.success("Campaign created on-chain!");
 
       // Best-effort: resolve the created campaign address so we can redirect using campaignAddress-only routes.
@@ -437,19 +436,18 @@ const Create = () => {
               {/* Optional creator initial buy */}
               <div className="pt-4">
                 <label className="block text-muted-foreground font-retro mb-2 text-xs md:text-sm">
-                  Initial buy (tokens, optional)
+                  Initial buy (BNB, optional)
                 </label>
                 <Input
-                  value={initialBuyTokens}
-                  onChange={(e) => setInitialBuyTokens(e.target.value)}
-                  placeholder="0"
+                  value={initialBuyBnb}
+                  onChange={(e) => setInitialBuyBnb(e.target.value)}
+                  placeholder="0.00"
                   inputMode="decimal"
                   className="bg-background/50 border-border text-foreground placeholder:text-muted-foreground font-retro rounded-lg focus:border-accent focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed h-12"
                   disabled={isProjectDisabled}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
-                  If set, the creator will buy this many tokens in the same transaction as campaign creation.
-                  You will pay the bonding-curve price plus the protocol fee.
+                  If set, the creator will spend this amount of BNB to buy tokens in the same transaction as campaign creation.
                 </p>
               </div>
 
