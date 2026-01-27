@@ -1917,6 +1917,7 @@ style={!isMobile ? { flex: "2" } : undefined}
                       <th className="text-left py-3 px-3 font-medium text-muted-foreground">Account</th>
                       <th className="text-left py-3 px-3 font-medium text-muted-foreground">Type</th>
                       <th className="text-left py-3 px-3 font-medium text-muted-foreground">BNB</th>
+                      <th className="text-left py-3 px-3 font-medium text-muted-foreground">Token</th>
                       <th className="text-left py-3 px-3 font-medium text-muted-foreground">Time</th>
                       <th className="text-right py-3 px-3 font-medium text-muted-foreground">Txn</th>
                     </tr>
