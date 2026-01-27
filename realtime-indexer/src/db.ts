@@ -31,6 +31,11 @@ const host = dbHostFromUrl(ENV.DATABASE_URL);
 // Keep this for local debugging only; do not set in production.
 const disableSsl = String(process.env.PG_DISABLE_SSL || "").trim() === "1";
 
+// Some serverless/container environments ship with a minimal CA bundle.
+// If you hit SELF_SIGNED_CERT_IN_CHAIN when connecting to Supabase pooler,
+// set PG_SSL_ALLOW_SELF_SIGNED=1 to keep TLS on but skip certificate verification.
+const allowSelfSigned = String(process.env.PG_SSL_ALLOW_SELF_SIGNED || "").trim() === "1";
+
 let customCa: string | null = null;
 try {
   customCa = loadCustomCaIfEnabled();
@@ -44,11 +49,13 @@ const ssl =
     ? false
     : customCa
       ? { ca: customCa, rejectUnauthorized: true, servername: host }
-      : { rejectUnauthorized: true, servername: host };
+      : allowSelfSigned
+        ? { rejectUnauthorized: false, servername: host }
+        : { rejectUnauthorized: true, servername: host };
 
 // This line makes it immediately obvious in Railway logs what path you’re on.
 console.log(
-  `[db] host=${host} ssl=${disableSsl ? "off" : "on"} verify=${disableSsl ? "n/a" : "on"} ca=${customCa ? "custom" : "system"}`
+  `[db] host=${host} ssl=${disableSsl ? "off" : "on"} verify=${disableSsl ? "n/a" : allowSelfSigned ? "off" : "on"} ca=${customCa ? "custom" : "system"}`
 );
 
 export const pool = new Pool({
