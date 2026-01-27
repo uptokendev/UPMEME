@@ -1395,7 +1395,7 @@ setTxs(next);
                     </Button>
                   </div>
 
-                                    <h3 className="text-lg md:text-2xl font-retro text-foreground">
+                                    <h3 className="text-base md:text-xl font-retro text-foreground">
                     {marketCapDisplay}
                   </h3>
                 </div>
