@@ -5,6 +5,7 @@
  */
 
 import Example from "@/components/ui/horizontal-scroll-carousel";
+import { FeaturedCampaigns } from "@/components/home/FeaturedCampaigns";
 import { GlowingButton } from "@/components/ui/glowing-button";
 import { Plus, Grid3x3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -15,7 +16,13 @@ const Showcase = () => {
 
   return (
     <div className="h-full flex flex-col relative">
-      <div className="flex-1 pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-0">
+      {/* Featured list sits directly under the ticker (TopBar) */}
+      <div className="flex-none">
+        <FeaturedCampaigns />
+      </div>
+
+      {/* Carousel slightly shorter to make room for Featured */}
+      <div className="flex-none h-[360px] sm:h-[420px] md:h-[520px] pb-[calc(96px+env(safe-area-inset-bottom))] md:pb-0">
         <Example />
       </div>
       
