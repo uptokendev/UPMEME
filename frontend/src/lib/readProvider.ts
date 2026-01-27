@@ -1,8 +1,8 @@
 import { ethers } from "ethers";
-import { getPublicRpcUrl, type SupportedChainId } from "./chainConfig";
+import { getPublicRpcUrls, type SupportedChainId } from "./chainConfig";
 
 // Cache 1 provider per chain id
-const providerCache = new Map<number, ethers.JsonRpcProvider>();
+const providerCache = new Map<number, ethers.Provider>();
 
 function networkName(chainId: number) {
   return chainId === 56 ? "bsc" : "bsc-testnet";
@@ -16,27 +16,43 @@ function networkName(chainId: number) {
  *   often rate-limit when getLogs requests are batched.
  * - We set staticNetwork to avoid extra "detectNetwork" chatter.
  */
-export function getReadProvider(chainId: SupportedChainId): ethers.JsonRpcProvider {
+export function getReadProvider(chainId: SupportedChainId): ethers.Provider {
   const cached = providerCache.get(chainId);
   if (cached) return cached;
 
-  const url = getPublicRpcUrl(chainId);
-  if (!url) {
+  const urls = getPublicRpcUrls(chainId);
+  if (!urls.length) {
     throw new Error(`Missing public RPC url for chainId=${chainId}`);
   }
 
   const network = { chainId, name: networkName(chainId) } as any;
 
-  const provider = new ethers.JsonRpcProvider(
-    url,
-    network,
-    {
-      staticNetwork: true,
-      // Disable batching to reduce "-32005 rate limit" issues
-      batchMaxCount: 1,
-      batchStallTime: 0,
-    } as any
-  );
+  const mk = (url: string) =>
+    new ethers.JsonRpcProvider(
+      url,
+      network,
+      {
+        staticNetwork: true,
+        // Disable batching to reduce "-32005 rate limit" issues
+        batchMaxCount: 1,
+        batchStallTime: 0,
+      } as any
+    );
+
+  // If multiple RPCs are configured (comma-separated env), use a FallbackProvider.
+  // This prevents the UI from completely breaking when one endpoint rate-limits.
+  const provider: ethers.Provider =
+    urls.length === 1
+      ? mk(urls[0])
+      : new ethers.FallbackProvider(
+          urls.map((u, i) => ({
+            provider: mk(u),
+            priority: i + 1,
+            weight: 1,
+            stallTimeout: 1500,
+          })),
+          1 // quorum
+        );
 
   providerCache.set(chainId, provider);
   return provider;

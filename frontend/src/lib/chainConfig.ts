@@ -18,6 +18,28 @@ const parseCsvNumbers = (raw?: string): number[] => {
     .filter((n) => Number.isFinite(n) && n > 0);
 };
 
+const normalizeRpcUrl = (raw: string): string => {
+  let s = String(raw).trim();
+
+  // Common typo: missing ':' after scheme, e.g. "https//..."
+  if (s.startsWith("https//")) s = "https://" + s.slice("https//".length);
+  if (s.startsWith("http//")) s = "http://" + s.slice("http//".length);
+
+  // If scheme is missing entirely, assume https
+  if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
+
+  return s;
+};
+
+const parseCsvUrls = (raw?: string): string[] => {
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(normalizeRpcUrl);
+};
+
 export function getAllowedChainIds(): SupportedChainId[] {
   const raw = import.meta.env.VITE_ALLOWED_CHAIN_IDS as string | undefined;
   const parsed = parseCsvNumbers(raw) as SupportedChainId[];
@@ -48,14 +70,21 @@ export function getPublicRpcUrl(chainId: SupportedChainId): string {
     (import.meta.env[`VITE_PUBLIC_RPC_${chainId}`] as string | undefined) ??
     (import.meta.env[`VITE_BSC_RPC_${chainId}`] as string | undefined);
 
-  if (explicit && String(explicit).trim().length) return String(explicit).trim();
+  // NOTE: allow comma-separated RPC URLs; return the first as the "primary".
+  if (explicit && String(explicit).trim().length) {
+    const urls = parseCsvUrls(String(explicit));
+    if (urls.length) return urls[0];
+  }
 
   // Secondary env keys (common naming)
   if (chainId === 56) {
     const v =
       (import.meta.env.VITE_BSC_MAINNET_RPC as string | undefined) ??
       (import.meta.env.VITE_PUBLIC_RPC_MAINNET as string | undefined);
-    if (v && String(v).trim().length) return String(v).trim();
+    if (v && String(v).trim().length) {
+      const urls = parseCsvUrls(String(v));
+      if (urls.length) return urls[0];
+    }
     return "https://bsc-dataseed.binance.org/";
   }
 
@@ -63,8 +92,35 @@ export function getPublicRpcUrl(chainId: SupportedChainId): string {
   const v =
     (import.meta.env.VITE_BSC_TESTNET_RPC as string | undefined) ??
     (import.meta.env.VITE_PUBLIC_RPC_TESTNET as string | undefined);
-  if (v && String(v).trim().length) return String(v).trim();
+  if (v && String(v).trim().length) {
+    const urls = parseCsvUrls(String(v));
+    if (urls.length) return urls[0];
+  }
   return "https://data-seed-prebsc-1-s1.binance.org:8545/";
+}
+
+export function getPublicRpcUrls(chainId: SupportedChainId): string[] {
+  const explicit =
+    (import.meta.env[`VITE_PUBLIC_RPC_${chainId}`] as string | undefined) ??
+    (import.meta.env[`VITE_BSC_RPC_${chainId}`] as string | undefined);
+  if (explicit && String(explicit).trim().length) {
+    const urls = parseCsvUrls(String(explicit));
+    if (urls.length) return urls;
+  }
+
+  if (chainId === 56) {
+    const v =
+      (import.meta.env.VITE_BSC_MAINNET_RPC as string | undefined) ??
+      (import.meta.env.VITE_PUBLIC_RPC_MAINNET as string | undefined);
+    const urls = parseCsvUrls(v);
+    return urls.length ? urls : ["https://bsc-dataseed.binance.org/"];
+  }
+
+  const v =
+    (import.meta.env.VITE_BSC_TESTNET_RPC as string | undefined) ??
+    (import.meta.env.VITE_PUBLIC_RPC_TESTNET as string | undefined);
+  const urls = parseCsvUrls(v);
+  return urls.length ? urls : ["https://data-seed-prebsc-1-s1.binance.org:8545/"];
 }
 
 export function getFactoryAddress(chainId: SupportedChainId): string {
@@ -87,7 +143,7 @@ export function getChainParams(chainId: SupportedChainId) {
       chainId: "0x38",
       chainName: "BNB Smart Chain",
       nativeCurrency: { name: "BNB", symbol: "BNB", decimals: 18 },
-      rpcUrls: [getPublicRpcUrl(56)],
+      rpcUrls: getPublicRpcUrls(56),
       blockExplorerUrls: ["https://bscscan.com/"],
     };
   }
@@ -95,7 +151,7 @@ export function getChainParams(chainId: SupportedChainId) {
     chainId: "0x61",
     chainName: "BNB Smart Chain Testnet",
     nativeCurrency: { name: "tBNB", symbol: "tBNB", decimals: 18 },
-    rpcUrls: [getPublicRpcUrl(97)],
+    rpcUrls: getPublicRpcUrls(97),
     blockExplorerUrls: ["https://testnet.bscscan.com/"],
   };
 }
