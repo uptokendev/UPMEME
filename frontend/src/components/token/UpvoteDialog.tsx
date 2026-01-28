@@ -60,8 +60,37 @@ export function UpvoteDialog({
   const [minAmountWei, setMinAmountWei] = useState<bigint | null>(null);
   const [enabled, setEnabled] = useState<boolean>(true);
   const [hasContractCode, setHasContractCode] = useState<boolean | null>(null);
+  const [balanceWei, setBalanceWei] = useState<bigint | null>(null);
+  const [estTotalWei, setEstTotalWei] = useState<bigint | null>(null);
+  const [insufficient, setInsufficient] = useState<boolean>(false);
   const [amountBnb, setAmountBnb] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+
+
+// Load wallet BNB balance when dialog opens / account changes
+useEffect(() => {
+  if (!open) return;
+  if (!wallet.provider) return;
+  if (!wallet.account) {
+    setBalanceWei(null);
+    return;
+  }
+  let cancelled = false;
+  (async () => {
+    try {
+      const bal = await wallet.provider.getBalance(wallet.account);
+      if (cancelled) return;
+      setBalanceWei(BigInt(bal));
+    } catch {
+      if (cancelled) return;
+      setBalanceWei(null);
+    }
+  })();
+  return () => {
+    cancelled = true;
+  };
+}, [open, wallet.provider, wallet.account, chainId]);
+
 
   const suggestedBnb = useMemo(() => {
     const p = Number(priceUsd ?? 0);
@@ -144,6 +173,80 @@ export function UpvoteDialog({
     }
   }, [minAmountWei]);
 
+
+// Estimate total cost (value + gas) and mark insufficient balance.
+useEffect(() => {
+  if (!open) return;
+  if (!wallet.provider) return;
+  if (!wallet.account) return;
+  if (!treasuryAddress) return;
+  if (hasContractCode === false) return;
+  if (!enabled) return;
+
+  let cancelled = false;
+  (async () => {
+    try {
+      // Parse value
+      let valueWei: bigint;
+      try {
+        valueWei = ethers.parseEther(String(amountBnb || "0"));
+      } catch {
+        setEstTotalWei(null);
+        setInsufficient(false);
+        return;
+      }
+      if (valueWei <= 0n) {
+        setEstTotalWei(null);
+        setInsufficient(false);
+        return;
+      }
+      if (minAmountWei != null && valueWei < minAmountWei) {
+        // Too low amount is handled elsewhere; don't flag as insufficient.
+        setEstTotalWei(null);
+        setInsufficient(false);
+        return;
+      }
+
+      const provider = wallet.provider;
+      const fee = await provider.getFeeData();
+      const gasPrice = BigInt(fee.gasPrice ?? 0n);
+
+      // If gas price is missing, fall back to just value comparison.
+      if (gasPrice === 0n) {
+        setEstTotalWei(valueWei);
+        if (balanceWei != null) setInsufficient(balanceWei < valueWei);
+        return;
+      }
+
+      const c = new ethers.Contract(treasuryAddress, UPVOTE_ABI, provider);
+      const meta = ethers.keccak256(ethers.toUtf8Bytes("user"));
+      let gasLimit: bigint;
+      try {
+        gasLimit = BigInt(await c.voteWithBNB.estimateGas(campaignAddress, meta, { value: valueWei }));
+      } catch {
+        // If estimation fails for any reason, use a conservative fallback.
+        gasLimit = 150000n;
+      }
+
+      // Add a buffer (20%) to avoid borderline failures
+      const bufferedGas = (gasLimit * 120n) / 100n;
+      const total = valueWei + bufferedGas * gasPrice;
+
+      if (cancelled) return;
+      setEstTotalWei(total);
+      if (balanceWei != null) setInsufficient(balanceWei < total);
+    } catch {
+      if (cancelled) return;
+      setEstTotalWei(null);
+      setInsufficient(false);
+    }
+  })();
+
+  return () => {
+    cancelled = true;
+  };
+}, [open, wallet.provider, wallet.account, treasuryAddress, hasContractCode, enabled, amountBnb, minAmountWei, campaignAddress, balanceWei]);
+
   const canUpvote = Boolean(
     treasuryAddress &&
       hasContractCode !== false &&
@@ -151,7 +254,7 @@ export function UpvoteDialog({
       campaignAddress &&
       wallet.provider &&
       amountBnb &&
-      Number(amountBnb) > 0
+      Number(amountBnb) > 0 && !insufficient
   );
 
   const handleUpvote = async () => {
@@ -190,6 +293,20 @@ export function UpvoteDialog({
         });
         return;
       }
+
+
+// Check balance (value + estimated gas)
+if (balanceWei != null) {
+  // If we computed estTotalWei, use it; else at least ensure value fits.
+  const needed = estTotalWei ?? valueWei;
+  if (balanceWei < needed) {
+    toast({
+      title: "Insufficient BNB",
+      description: "You don't have enough BNB to cover the vote fee (and gas).",
+    });
+    return;
+  }
+}
 
       setSubmitting(true);
       const c = new ethers.Contract(treasuryAddress, UPVOTE_ABI, wallet.signer);
@@ -246,6 +363,17 @@ export function UpvoteDialog({
               "UP Vote is currently disabled on this chain."
             )}
           </div>
+
+
+<div className="text-xs text-muted-foreground">
+  Balance:{" "}
+  <span className="text-foreground">
+    {balanceWei != null ? `${Number(ethers.formatEther(balanceWei)).toFixed(6)} BNB` : "—"}
+  </span>
+  {insufficient ? (
+    <span className="ml-2 text-destructive">Insufficient for this vote.</span>
+  ) : null}
+</div>
 
           <div className="flex items-center gap-2">
             <Input
