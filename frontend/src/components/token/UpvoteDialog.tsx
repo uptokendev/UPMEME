@@ -59,6 +59,7 @@ export function UpvoteDialog({
   const [loadingCfg, setLoadingCfg] = useState(false);
   const [minAmountWei, setMinAmountWei] = useState<bigint | null>(null);
   const [enabled, setEnabled] = useState<boolean>(true);
+  const [hasContractCode, setHasContractCode] = useState<boolean | null>(null);
   const [amountBnb, setAmountBnb] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -76,6 +77,7 @@ export function UpvoteDialog({
     if (!treasuryAddress) {
       setMinAmountWei(null);
       setEnabled(false);
+      setHasContractCode(null);
       return;
     }
     if (!wallet.provider) return;
@@ -84,6 +86,17 @@ export function UpvoteDialog({
     setLoadingCfg(true);
     (async () => {
       try {
+        // Guardrail: if the address has no bytecode, the contract is not deployed on this chain.
+        const code = await wallet.provider.getCode(treasuryAddress);
+        const hasCode = code != null && code !== "0x";
+        if (cancelled) return;
+        setHasContractCode(hasCode);
+        if (!hasCode) {
+          setEnabled(false);
+          setMinAmountWei(null);
+          return;
+        }
+
         const c = new ethers.Contract(treasuryAddress, UPVOTE_ABI, wallet.provider);
         const res = await c.assetConfig(ethers.ZeroAddress);
         // ethers v6 returns a Result: [enabled, minAmount] + named props
@@ -111,6 +124,7 @@ export function UpvoteDialog({
         if (cancelled) return;
         setEnabled(false);
         setMinAmountWei(null);
+        setHasContractCode(false);
       } finally {
         if (!cancelled) setLoadingCfg(false);
       }
@@ -132,6 +146,7 @@ export function UpvoteDialog({
 
   const canUpvote = Boolean(
     treasuryAddress &&
+      hasContractCode !== false &&
       enabled &&
       campaignAddress &&
       wallet.provider &&
@@ -143,6 +158,13 @@ export function UpvoteDialog({
     try {
       if (!treasuryAddress) {
         toast({ title: "UP Vote is not configured", description: "Missing vote treasury address for this chain." });
+        return;
+      }
+      if (hasContractCode === false) {
+        toast({
+          title: "UP Vote contract not deployed",
+          description: "The configured vote treasury address has no contract code on this network. Switch networks or update the contract address.",
+        });
         return;
       }
       if (!wallet.signer) {
