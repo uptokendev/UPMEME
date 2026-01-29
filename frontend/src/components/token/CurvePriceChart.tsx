@@ -135,12 +135,13 @@ export const CurvePriceChart = ({
   useEffect(() => {
   const last = chartPoints && chartPoints.length ? chartPoints[chartPoints.length - 1] : null;
 
-  console.debug("[Chart MCap]", {
-    campaignAddress: (campaignAddress ?? "").toLowerCase(),
-    bnbUsd,
-    lastPoint: last, // { ts, value } where value is mcapUSD
-    pointsCount: chartPoints?.length ?? 0,
-  });
+  console.log("[Chart MCap]", {
+  campaignAddress: (campaignAddress ?? "").toLowerCase(),
+  bnbUsd,
+  lastValue: last?.value ?? null,
+  lastTs: last?.ts ?? null,
+  pointsCount: chartPoints?.length ?? 0,
+});
 }, [campaignAddress, bnbUsd, chartPoints]);
 
   // Render states (SAFE: hooks already executed)
