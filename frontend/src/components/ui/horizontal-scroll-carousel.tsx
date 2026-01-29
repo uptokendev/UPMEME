@@ -8,6 +8,8 @@ import type { CampaignInfo, CampaignMetrics, CampaignSummary, CampaignActivity }
 import { getActiveChainId } from "@/lib/chainConfig";
 import { AthBar } from "@/components/token/AthBar";
 import { useBnbUsdPrice } from "@/hooks/useBnbUsdPrice";
+import { useTokenStatsRealtime } from "@/hooks/useTokenStatsRealtime";
+import { useWallet } from "@/hooks/useWallet";
 
 // ---- Types ----
 type CarouselCard = {
@@ -193,6 +195,17 @@ const Example = () => {
   const { fetchCampaigns, fetchCampaignCardStats, activeChainId } = useLaunchpad();
   const chainIdForStorage = activeChainId ?? 97;
   const { price: bnbUsdPrice } = useBnbUsdPrice(true);
+  // Normalize in case hook returns a scaled value (TokenDetails does this too)
+const bnbUsd = useMemo(() => {
+  if (bnbUsdPrice == null) return null;
+  const n = Number(bnbUsdPrice);
+  if (!Number.isFinite(n) || n <= 0) return null;
+
+  // BNB price in USD should never be anywhere near 100k+. If it is, it's almost certainly scaled.
+  if (n > 100_000) return n / 1e18;
+
+  return n;
+}, [bnbUsdPrice]);
   const [cards, setCards] = useState<CarouselCard[]>([]);
   const [loadingCampaigns, setLoadingCampaigns] = useState(true);
   const [campaignError, setCampaignError] = useState<string | null>(null);
@@ -675,14 +688,15 @@ const Example = () => {
           const isCentered = index === centeredTripleIndex;
           return (
             <CardView
-              card={card}
-              key={`${card.id}-${index}`}
-              isCentered={isCentered}
-              cardWidth={CARD_WIDTH}
-              isMobile={isMobile}
-              chainIdForStorage={chainIdForStorage}
-              onClick={() => handleCardClick(index)}
-            />
+  card={card}
+  key={`${card.id}-${index}`}
+  isCentered={isCentered}
+  cardWidth={CARD_WIDTH}
+  isMobile={isMobile}
+  chainIdForStorage={chainIdForStorage}
+  bnbUsd={bnbUsd}
+  onClick={() => handleCardClick(index)}
+/>
           );
         })}
       </div>
@@ -707,6 +721,7 @@ const CardView = ({
   cardWidth,
   isMobile,
   chainIdForStorage,
+  bnbUsd,
   onClick,
 }: {
   card: CarouselCard;
@@ -714,10 +729,64 @@ const CardView = ({
   cardWidth: number;
   isMobile: boolean;
   chainIdForStorage: number;
+  bnbUsd: number | null;
   onClick: () => void;
 }) => {
   const [copied, setCopied] = useState(false);
   const navigate = useNavigate();
+
+  const { chainId } = useWallet();
+
+// Realtime stats (same source as TokenDetails)
+const isDummy =
+  !card.campaignAddress ||
+  !isAddress(card.campaignAddress) ||
+  isZeroAddress(card.campaignAddress);
+
+const { stats: rtStats } = useTokenStatsRealtime(
+  card.campaignAddress,
+  chainId,
+  !isDummy
+);
+
+// Use raw numeric marketcapBnb when available; never parse from a formatted label.
+const athCurrentLabel = useMemo(() => {
+  const raw = rtStats?.marketcapBnb;
+  const mcBnb =
+    raw != null && Number.isFinite(raw) ? Number(raw) : (card.marketCapBnb != null ? Number(card.marketCapBnb) : null);
+
+  if (mcBnb == null || !Number.isFinite(mcBnb) || mcBnb <= 0) return card.marketCapUsdLabel ?? null;
+  if (!bnbUsd) return card.marketCapUsdLabel ?? null;
+
+  const usd = mcBnb * bnbUsd;
+  return Number.isFinite(usd) && usd > 0 ? formatCompactUsd(usd) : card.marketCapUsdLabel ?? null;
+}, [rtStats?.marketcapBnb, card.marketCapBnb, card.marketCapUsdLabel, bnbUsd]);
+
+useEffect(() => {
+  if (!isCentered) return;
+
+  console.debug("[ATH Carousel]", {
+    chainIdForStorage,
+    campaignAddress: String(card.campaignAddress).toLowerCase(),
+    bnbUsd,
+    // label-based (old path)
+    marketCapLabel: card.marketCap,
+    marketCapUsdLabel_fromCard: card.marketCapUsdLabel,
+    // realtime raw (correct path)
+    rt_marketcapBnb: rtStats?.marketcapBnb,
+    // what AthBar will now consume
+    athCurrentLabel,
+  });
+}, [
+  isCentered,
+  chainIdForStorage,
+  card.campaignAddress,
+  card.marketCap,
+  card.marketCapUsdLabel,
+  bnbUsd,
+  rtStats?.marketcapBnb,
+  athCurrentLabel,
+]);
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -871,12 +940,12 @@ const CardView = ({
           {/* Bottom: MC (USD) + ATH bar */}
           <div className="flex items-center justify-between gap-3">
             <AthBar
-              currentLabel={card.marketCapUsdLabel ?? null}
-              storageKey={`ath:${String(chainIdForStorage)}:${String(card.campaignAddress).toLowerCase()}`}
-              className="text-[10px]"
-              barWidthPx={barWidthPx}
-              barMaxWidth="100%"
-            />
+  currentLabel={card.marketCapUsdLabel ?? null}
+  storageKey={`ath:${String(chainIdForStorage)}:${String(card.campaignAddress).toLowerCase()}`}
+  className="text-[10px]"
+  barWidthPx={barWidthPx}
+  barMaxWidth="100%"
+/>
           </div>
         </div>
       </div>
