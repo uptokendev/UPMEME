@@ -17,6 +17,8 @@ contract LaunchFactory is Ownable {
     error RefundFail();
     error RecipientZero();
     error FeeTooHigh();
+    error FeeTooLowForLeague();
+    error ParamTooHigh();
     error OutOfBounds();
     error Offset();
     error SupplyZero();
@@ -68,6 +70,11 @@ contract LaunchFactory is Ownable {
     LaunchConfig public config;
     address public feeRecipient;
     uint256 public protocolFeeBps;
+    uint256 public constant LEAGUE_FEE_BPS = 25;
+    uint256 public constant MAX_BASE_PRICE = 1_000 ether;
+    uint256 public constant MAX_PRICE_SLOPE = 1e36;
+    uint256 public constant MAX_GRADUATION_TARGET = 1_000_000 ether;
+    address public immutable leagueReceiver;
     address public router;
     address public campaignImplementation;
 
@@ -86,9 +93,11 @@ contract LaunchFactory is Ownable {
     event RouterUpdated(address indexed newRouter);
     event ProtocolFeeUpdated(uint256 newFeeBps);
 
-    constructor(address router_) Ownable(msg.sender) {
+    constructor(address router_, address leagueReceiver_) Ownable(msg.sender) {
         if (router_ == address(0)) revert RouterZero();
+        if (leagueReceiver_ == address(0)) revert RecipientZero();
         router = router_;
+        leagueReceiver = leagueReceiver_;
         config = LaunchConfig({
             totalSupply: 1_000_000_000 ether,
             curveBps: 8800,
@@ -136,6 +145,11 @@ contract LaunchFactory is Ownable {
         if (bytes(req.symbol).length == 0) revert SymbolEmpty();
         if (bytes(req.logoURI).length == 0) revert LogoEmpty();
 
+if (req.basePrice != 0 && req.basePrice > MAX_BASE_PRICE) revert ParamTooHigh();
+if (req.priceSlope != 0 && req.priceSlope > MAX_PRICE_SLOPE) revert ParamTooHigh();
+if (req.graduationTarget != 0 && req.graduationTarget > MAX_GRADUATION_TARGET) revert ParamTooHigh();
+
+
         LaunchCampaign.InitParams memory params = LaunchCampaign.InitParams({
             name: req.name,
             symbol: req.symbol,
@@ -153,6 +167,8 @@ contract LaunchFactory is Ownable {
                 : req.graduationTarget,
             liquidityBps: config.liquidityBps,
             protocolFeeBps: protocolFeeBps,
+            leagueFeeBps: LEAGUE_FEE_BPS,
+            leagueReceiver: leagueReceiver,
             router: router,
             lpReceiver: req.lpReceiver == address(0)
                 ? msg.sender
@@ -230,6 +246,7 @@ contract LaunchFactory is Ownable {
 
     function setProtocolFee(uint256 newProtocolFeeBps) external onlyOwner {
         if (newProtocolFeeBps > 1000) revert FeeTooHigh();
+        if (newProtocolFeeBps < LEAGUE_FEE_BPS) revert FeeTooLowForLeague();
         protocolFeeBps = newProtocolFeeBps;
         emit ProtocolFeeUpdated(newProtocolFeeBps);
     }
@@ -267,8 +284,11 @@ contract LaunchFactory is Ownable {
         if (newConfig.totalSupply == 0) revert SupplyZero();
         if (!(newConfig.curveBps > 0 && newConfig.curveBps + newConfig.liquidityTokenBps <= MAX_BPS)) revert InvalidCurveBps();
         if (newConfig.basePrice == 0) revert PriceZero();
+        if (newConfig.basePrice > MAX_BASE_PRICE) revert ParamTooHigh();
         if (newConfig.priceSlope == 0) revert SlopeZero();
+        if (newConfig.priceSlope > MAX_PRICE_SLOPE) revert ParamTooHigh();
         if (newConfig.graduationTarget == 0) revert TargetZero();
+        if (newConfig.graduationTarget > MAX_GRADUATION_TARGET) revert ParamTooHigh();
         if (newConfig.liquidityBps > MAX_BPS) revert LiquidityBps();
     }
 }

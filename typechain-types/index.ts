@@ -38,6 +38,8 @@ export type { ReentrancyGuard } from "./@openzeppelin/contracts/utils/Reentrancy
 export { ReentrancyGuard__factory } from "./factories/@openzeppelin/contracts/utils/ReentrancyGuard__factory";
 export type { IPancakeRouter02 } from "./contracts/interfaces/IPancakeRouter02";
 export { IPancakeRouter02__factory } from "./factories/contracts/interfaces/IPancakeRouter02__factory";
+export type { ITreasuryVault } from "./contracts/ITreasuryVault";
+export { ITreasuryVault__factory } from "./factories/contracts/ITreasuryVault__factory";
 export type { LaunchCampaign } from "./contracts/LaunchCampaign";
 export { LaunchCampaign__factory } from "./factories/contracts/LaunchCampaign__factory";
 export type { LaunchFactory } from "./contracts/LaunchFactory";
@@ -50,9 +52,15 @@ export type { MockFeeOnTransferERC20 } from "./contracts/mocks/MockFeeOnTransfer
 export { MockFeeOnTransferERC20__factory } from "./factories/contracts/mocks/MockFeeOnTransferERC20__factory";
 export type { MockRouter } from "./contracts/mocks/MockRouter";
 export { MockRouter__factory } from "./factories/contracts/mocks/MockRouter__factory";
+export type { RevertingReceiver } from "./contracts/mocks/RevertingReceiver";
+export { RevertingReceiver__factory } from "./factories/contracts/mocks/RevertingReceiver__factory";
 export type { FactoryCaller } from "./contracts/test/FactoryCaller";
 export { FactoryCaller__factory } from "./factories/contracts/test/FactoryCaller__factory";
 export type { LaunchToken } from "./contracts/token/LaunchToken";
 export { LaunchToken__factory } from "./factories/contracts/token/LaunchToken__factory";
+export type { TreasuryRouter } from "./contracts/TreasuryRouter";
+export { TreasuryRouter__factory } from "./factories/contracts/TreasuryRouter__factory";
+export type { TreasuryVault } from "./contracts/TreasuryVault";
+export { TreasuryVault__factory } from "./factories/contracts/TreasuryVault__factory";
 export type { UPVoteTreasury } from "./contracts/UPVoteTreasury.sol/UPVoteTreasury";
 export { UPVoteTreasury__factory } from "./factories/contracts/UPVoteTreasury.sol/UPVoteTreasury__factory";

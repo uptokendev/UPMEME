@@ -29,6 +29,8 @@ contract LaunchCampaign is ReentrancyGuard, Ownable {
         uint256 graduationTarget;
         uint256 liquidityBps;
         uint256 protocolFeeBps;
+        uint256 leagueFeeBps;
+        address leagueReceiver;
         address router;
         address lpReceiver;
         address feeRecipient;
@@ -44,6 +46,8 @@ contract LaunchCampaign is ReentrancyGuard, Ownable {
     IPancakeRouter02 public router;
     address public factory;
     address public feeRecipient;
+    address public leagueReceiver;
+    uint256 public leagueFeeBps;
     address public lpReceiver;
 
     string public logoURI;
@@ -76,9 +80,12 @@ uint256 public totalBuyVolumeWei;
 uint256 public totalSellVolumeWei;
 uint256 public buyersCount;
 mapping(address => bool) public hasBought;
+mapping(address => uint256) public pendingNative;
 
     event TokensPurchased(address indexed buyer, uint256 amountOut, uint256 cost);
     event TokensSold(address indexed seller, uint256 amountIn, uint256 payout);
+    event NativeEscrowed(address indexed beneficiary, uint256 amount);
+    event NativeClaimed(address indexed beneficiary, uint256 amount);
     event CampaignFinalized(
         address indexed caller,
         uint256 liquidityTokens,
@@ -111,6 +118,8 @@ function initialize(InitParams memory params) external {
     require(params.creator != address(0), "creator zero");
     require(params.liquidityBps <= MAX_BPS, "liquidity bps");
     require(params.protocolFeeBps <= MAX_BPS, "protocol bps");
+    require(params.leagueFeeBps <= params.protocolFeeBps, "league>protocol");
+    require(params.leagueReceiver != address(0), "league receiver zero");
     require(bytes(params.logoURI).length > 0, "logo uri");
 
     // set owner to creator
@@ -127,6 +136,8 @@ function initialize(InitParams memory params) external {
     protocolFeeBps = params.protocolFeeBps;
     factory = params.factory;
     feeRecipient = params.feeRecipient;
+    leagueReceiver = params.leagueReceiver;
+    leagueFeeBps = params.leagueFeeBps;
     lpReceiver = params.lpReceiver == address(0)
         ? params.creator
         : params.lpReceiver;
@@ -156,6 +167,29 @@ receive() external payable {}
     function _fee(uint256 amountWei) internal view returns (uint256) {
         if (protocolFeeBps == 0) return 0;
         return (amountWei * protocolFeeBps) / MAX_BPS;
+    }
+
+    function _feeSplit(uint256 amountWei)
+        internal
+        view
+        returns (uint256 totalFeeWei, uint256 protocolNetFeeWei, uint256 leagueFeeWei)
+    {
+        totalFeeWei = _fee(amountWei);
+        if (totalFeeWei == 0) return (0, 0, 0);
+
+        // league fee is a fixed bps slice of the same base amount used to compute the total fee.
+        // This keeps user-visible fees unchanged while funding the League from inside the existing fee.
+        leagueFeeWei = (amountWei * leagueFeeBps) / MAX_BPS;
+
+        if (leagueReceiver == address(0) || leagueFeeWei == 0) {
+            // Fallback: if league receiver isn't set, everything goes to protocol feeRecipient.
+            return (totalFeeWei, totalFeeWei, 0);
+        }
+
+        // Guard: never exceed the total fee (e.g., if protocolFeeBps is configured too low)
+        if (leagueFeeWei > totalFeeWei) leagueFeeWei = totalFeeWei;
+
+        protocolNetFeeWei = totalFeeWei - leagueFeeWei;
     }
 
     function _quoteBuyNoFee(uint256 amountOut) internal view returns (uint256) {
@@ -230,6 +264,8 @@ receive() external payable {}
         returns (uint256 cost)
     {
         require(!launched, "campaign launched");
+        require(amountOut > 0, "zero amount");
+        require(sold + amountOut <= curveSupply, "sold out");
         uint256 costNoFee = _quoteBuyNoFee(amountOut);
         uint256 fee = _fee(costNoFee);
         uint256 total = costNoFee + fee;
@@ -247,7 +283,10 @@ if (!hasBought[msg.sender]) {
         tokenInterface.safeTransfer(msg.sender, amountOut);
 
         if (fee > 0) {
-            _sendNative(feeRecipient, fee);
+            (, uint256 protocolNet, uint256 leagueFee) = _feeSplit(costNoFee);
+            // fee == protocolNet + leagueFee
+            if (protocolNet > 0 && feeRecipient != address(0)) _sendNativeFee(payable(feeRecipient), protocolNet);
+            if (leagueFee > 0) _sendNativeFee(payable(leagueReceiver), leagueFee);
         }
 
         if (msg.value > total) {
@@ -270,6 +309,7 @@ if (!hasBought[msg.sender]) {
         (tokensOut, totalSpent, ) = quoteBuyExactBnb(msg.value);
         require(tokensOut > 0, "zero amount");
         require(tokensOut >= minTokensOut, "slippage");
+        require(sold + tokensOut <= curveSupply, "sold out");
 
         uint256 costNoFee = _quoteBuyNoFee(tokensOut);
         uint256 fee = _fee(costNoFee);
@@ -287,7 +327,10 @@ if (!hasBought[msg.sender]) {
         tokenInterface.safeTransfer(msg.sender, tokensOut);
 
         if (fee > 0) {
-            _sendNative(feeRecipient, fee);
+            (, uint256 protocolNet, uint256 leagueFee) = _feeSplit(costNoFee);
+            // fee == protocolNet + leagueFee
+            if (protocolNet > 0 && feeRecipient != address(0)) _sendNativeFee(payable(feeRecipient), protocolNet);
+            if (leagueFee > 0) _sendNativeFee(payable(leagueReceiver), leagueFee);
         }
 
         if (msg.value > total) {
@@ -309,6 +352,8 @@ if (!hasBought[msg.sender]) {
     {
         require(recipient != address(0), "zero recipient");
         require(!launched, "campaign launched");
+        require(amountOut > 0, "zero amount");
+        require(sold + amountOut <= curveSupply, "sold out");
 
         uint256 costNoFee = _quoteBuyNoFee(amountOut);
         uint256 fee = _fee(costNoFee);
@@ -327,7 +372,10 @@ if (!hasBought[msg.sender]) {
         tokenInterface.safeTransfer(recipient, amountOut);
 
         if (fee > 0) {
-            _sendNative(feeRecipient, fee);
+            (, uint256 protocolNet, uint256 leagueFee) = _feeSplit(costNoFee);
+            // fee == protocolNet + leagueFee
+            if (protocolNet > 0 && feeRecipient != address(0)) _sendNativeFee(payable(feeRecipient), protocolNet);
+            if (leagueFee > 0) _sendNativeFee(payable(leagueReceiver), leagueFee);
         }
 
         if (msg.value > total) {
@@ -353,6 +401,7 @@ if (!hasBought[msg.sender]) {
         (tokensOut, totalSpent, ) = quoteBuyExactBnb(msg.value);
         require(tokensOut > 0, "zero amount");
         require(tokensOut >= minTokensOut, "slippage");
+        require(sold + tokensOut <= curveSupply, "sold out");
 
         uint256 costNoFee = _quoteBuyNoFee(tokensOut);
         uint256 fee = _fee(costNoFee);
@@ -370,7 +419,10 @@ if (!hasBought[msg.sender]) {
         tokenInterface.safeTransfer(recipient, tokensOut);
 
         if (fee > 0) {
-            _sendNative(feeRecipient, fee);
+            (, uint256 protocolNet, uint256 leagueFee) = _feeSplit(costNoFee);
+            // fee == protocolNet + leagueFee
+            if (protocolNet > 0 && feeRecipient != address(0)) _sendNativeFee(payable(feeRecipient), protocolNet);
+            if (leagueFee > 0) _sendNativeFee(payable(leagueReceiver), leagueFee);
         }
 
         if (msg.value > total) {
@@ -387,6 +439,8 @@ if (!hasBought[msg.sender]) {
         returns (uint256 payout)
     {
         require(!launched, "campaign launched");
+        require(amountIn > 0, "zero amount");
+        require(amountIn <= sold, "exceeds sold");
         uint256 gross = _quoteSellNoFee(amountIn);
         uint256 fee = _fee(gross);
         payout = gross - fee; // net to seller
@@ -396,7 +450,10 @@ if (!hasBought[msg.sender]) {
         tokenInterface.safeTransferFrom(msg.sender, address(this), amountIn);
 
         if (fee > 0) {
-            _sendNative(feeRecipient, fee);
+            (, uint256 protocolNet, uint256 leagueFee) = _feeSplit(gross);
+            // fee == protocolNet + leagueFee
+            if (protocolNet > 0 && feeRecipient != address(0)) _sendNativeFee(payable(feeRecipient), protocolNet);
+            if (leagueFee > 0) _sendNativeFee(payable(leagueReceiver), leagueFee);
         }
         _sendNative(msg.sender, payout);
 
@@ -407,7 +464,16 @@ if (!hasBought[msg.sender]) {
         return payout;
     }
 
-    function finalize(uint256 minTokens, uint256 minBnb)
+    function claimPendingNative() external nonReentrant returns (uint256 amount) {
+    amount = pendingNative[msg.sender];
+    require(amount > 0, "no pending");
+    pendingNative[msg.sender] = 0;
+    (bool ok, ) = payable(msg.sender).call{value: amount}("");
+    require(ok, "claim failed");
+    emit NativeClaimed(msg.sender, amount);
+}
+
+function finalize(uint256 minTokens, uint256 minBnb)
         external
         onlyOwner
         nonReentrant
@@ -427,7 +493,7 @@ if (!hasBought[msg.sender]) {
         uint256 balanceBefore = address(this).balance;
         uint256 protocolFee = (balanceBefore * protocolFeeBps) / MAX_BPS;
         if (protocolFee > 0 && feeRecipient != address(0)) {
-            _sendNative(feeRecipient, protocolFee);
+            _sendNativeFee(payable(feeRecipient), protocolFee);
         }
 
         // Bonding-curve fees apply only pre-launch. Once liquidity is seeded on the DEX,
@@ -493,7 +559,16 @@ if (!hasBought[msg.sender]) {
         return linear + slopeTerm;
     }
 
-    function _sendNative(address to, uint256 value) private {
+    function _sendNativeFee(address payable to, uint256 value) private {
+    if (value == 0) return;
+    (bool ok, ) = to.call{value: value}("");
+    if (!ok) {
+        pendingNative[to] += value;
+        emit NativeEscrowed(to, value);
+    }
+}
+
+function _sendNative(address to, uint256 value) private {
         (bool success, ) = to.call{value: value}("");
         require(success, "transfer failed");
     }

@@ -6,6 +6,7 @@
 
 import Example from "@/components/ui/horizontal-scroll-carousel";
 import { FeaturedCampaigns } from "@/components/home/FeaturedCampaigns";
+import { LeagueCampaigns } from "@/components/home/LeagueCampaigns";
 import { GlowingButton } from "@/components/ui/glowing-button";
 import { Plus, Grid3x3 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
@@ -26,6 +27,11 @@ const Showcase = () => {
         <Example />
       </div>
       
+      
+      <div className="flex-none px-0 md:px-0">
+        <LeagueCampaigns />
+      </div>
+
       <div className="absolute bottom-8 left-0 right-0 flex flex-col sm:flex-row items-center justify-center gap-3 md:gap-6 z-20 pointer-events-none px-4 md:static md:mt-6 md:pb-6">
         <div className="pointer-events-auto w-full sm:w-auto">
           <GlowingButton 

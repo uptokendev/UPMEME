@@ -2,7 +2,7 @@
  * Navigation and social link configuration
  */
 
-import { Plus } from "lucide-react";
+import { Plus, Trophy } from "lucide-react";
 import carouselIcon from "@/assets/menu-icons/carousel.png";
 import upArrowIcon from "@/assets/menu-icons/up-arrow.png";
 import userIcon from "@/assets/menu-icons/user.png";
@@ -22,6 +22,7 @@ export const navItems: NavItem[] = [
   { icon: carouselIcon, label: "Showcase", path: "/" },
   { icon: Plus, label: "Create", path: "/create" },
   { icon: upArrowIcon, label: "UP Dashboard", path: "/up-dashboard" },
+  { icon: Trophy, label: "League", path: "/league" },
   { icon: userIcon, label: "Profile", path: "/profile" },
 ];
 

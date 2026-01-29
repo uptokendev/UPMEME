@@ -78,6 +78,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IPancakeRouter02__factory>;
     getContractFactory(
+      name: "ITreasuryVault",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.ITreasuryVault__factory>;
+    getContractFactory(
       name: "LaunchCampaign",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.LaunchCampaign__factory>;
@@ -102,6 +106,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.MockRouter__factory>;
     getContractFactory(
+      name: "RevertingReceiver",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.RevertingReceiver__factory>;
+    getContractFactory(
       name: "FactoryCaller",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.FactoryCaller__factory>;
@@ -109,6 +117,14 @@ declare module "hardhat/types/runtime" {
       name: "LaunchToken",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.LaunchToken__factory>;
+    getContractFactory(
+      name: "TreasuryRouter",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.TreasuryRouter__factory>;
+    getContractFactory(
+      name: "TreasuryVault",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.TreasuryVault__factory>;
     getContractFactory(
       name: "IERC20",
       signerOrOptions?: ethers.Signer | FactoryOptions
@@ -203,6 +219,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.IPancakeRouter02>;
     getContractAt(
+      name: "ITreasuryVault",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.ITreasuryVault>;
+    getContractAt(
       name: "LaunchCampaign",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -233,6 +254,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.MockRouter>;
     getContractAt(
+      name: "RevertingReceiver",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.RevertingReceiver>;
+    getContractAt(
       name: "FactoryCaller",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -242,6 +268,16 @@ declare module "hardhat/types/runtime" {
       address: string | ethers.Addressable,
       signer?: ethers.Signer
     ): Promise<Contracts.LaunchToken>;
+    getContractAt(
+      name: "TreasuryRouter",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.TreasuryRouter>;
+    getContractAt(
+      name: "TreasuryVault",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.TreasuryVault>;
     getContractAt(
       name: "IERC20",
       address: string | ethers.Addressable,
@@ -323,6 +359,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IPancakeRouter02>;
     deployContract(
+      name: "ITreasuryVault",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ITreasuryVault>;
+    deployContract(
       name: "LaunchCampaign",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.LaunchCampaign>;
@@ -347,6 +387,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MockRouter>;
     deployContract(
+      name: "RevertingReceiver",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.RevertingReceiver>;
+    deployContract(
       name: "FactoryCaller",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.FactoryCaller>;
@@ -354,6 +398,14 @@ declare module "hardhat/types/runtime" {
       name: "LaunchToken",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.LaunchToken>;
+    deployContract(
+      name: "TreasuryRouter",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.TreasuryRouter>;
+    deployContract(
+      name: "TreasuryVault",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.TreasuryVault>;
     deployContract(
       name: "IERC20",
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -448,6 +500,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IPancakeRouter02>;
     deployContract(
+      name: "ITreasuryVault",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.ITreasuryVault>;
+    deployContract(
       name: "LaunchCampaign",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -478,6 +535,11 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.MockRouter>;
     deployContract(
+      name: "RevertingReceiver",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.RevertingReceiver>;
+    deployContract(
       name: "FactoryCaller",
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
@@ -487,6 +549,16 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.LaunchToken>;
+    deployContract(
+      name: "TreasuryRouter",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.TreasuryRouter>;
+    deployContract(
+      name: "TreasuryVault",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.TreasuryVault>;
     deployContract(
       name: "IERC20",
       args: any[],

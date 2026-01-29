@@ -62,7 +62,7 @@ describe("LaunchCampaign", function () {
   });
 
   it("buyExactTokens: transfers tokens, updates sold & counters, emits, sends fee, refunds overpay", async () => {
-    const { campaign, token, alice, feeRecipient } = await loadFixture(createCampaignFixture);
+    const { campaign, token, alice, feeRecipient, lpReceiver } = await loadFixture(createCampaignFixture);
 
     const base = await campaign.basePrice();
     const slope = await campaign.priceSlope();
@@ -73,6 +73,7 @@ describe("LaunchCampaign", function () {
     const { costNoFee, fee, total } = quoteBuyExactTokens(BigInt(sold0), BigInt(amountOut), BigInt(base), BigInt(slope), BigInt(feeBps));
 
     const feeBefore = await getBalance(await feeRecipient.getAddress());
+    const leagueBefore = await getBalance(await lpReceiver.getAddress());
     const buyerBefore = await getBalance(await alice.getAddress());
     const campBefore = await getBalance(await campaign.getAddress());
 
@@ -87,9 +88,16 @@ describe("LaunchCampaign", function () {
     expect(await campaign.buyersCount()).to.eq(1n);
     expect(await campaign.hasBought(await alice.getAddress())).to.eq(true);
 
-    // fee recipient got fee
+    // fee split: protocolNet -> feeRecipient, league slice -> leagueReceiver (lpReceiver in this fixture)
+    const leagueBps = await campaign.leagueFeeBps();
+    let expectedLeagueFee = (costNoFee * BigInt(leagueBps)) / 10_000n;
+    if (expectedLeagueFee > fee) expectedLeagueFee = fee; // must never exceed total fee
+    const expectedProtocolNet = fee - expectedLeagueFee;
+
     const feeAfter = await getBalance(await feeRecipient.getAddress());
-    expect(feeAfter - feeBefore).to.eq(fee);
+    const leagueAfter = await getBalance(await lpReceiver.getAddress());
+    expect(feeAfter - feeBefore).to.eq(expectedProtocolNet);
+    expect(leagueAfter - leagueBefore).to.eq(expectedLeagueFee);
 
     // campaign retains no-fee portion
     const campAfter = await getBalance(await campaign.getAddress());
@@ -114,7 +122,7 @@ describe("LaunchCampaign", function () {
   });
 
   it("sellExactTokens: transfers tokens back, pays out, updates sold & counters, emits, takes fee", async () => {
-    const { campaign, token, alice, feeRecipient } = await loadFixture(createCampaignFixture);
+    const { campaign, token, alice, feeRecipient, lpReceiver } = await loadFixture(createCampaignFixture);
 
     const base = await campaign.basePrice();
     const slope = await campaign.priceSlope();
@@ -133,19 +141,25 @@ describe("LaunchCampaign", function () {
     const { gross, fee, payout } = quoteSellExactTokens(BigInt(soldBefore), BigInt(amountIn), BigInt(base), BigInt(slope), BigInt(feeBps));
 
     const feeBefore = await getBalance(await feeRecipient.getAddress());
+    const leagueBefore = await getBalance(await lpReceiver.getAddress());
     const campBefore = await getBalance(await campaign.getAddress());
 
     const tx = await campaign.connect(alice).sellExactTokens(amountIn, payout);
     await expect(tx).to.emit(campaign, "TokensSold").withArgs(await alice.getAddress(), amountIn, payout);
 
     expect(await campaign.sold()).to.eq(soldBefore - amountIn);
-    expect(await token.balanceOf(await alice.getAddress())).to.eq(amountOut - amountIn);
+    expect(await token.balanceOf(await alice.getAddress())).to.eq(amountOut - amountIn);    // fee split: feeRecipient gets protocolNet, leagueReceiver gets leagueFee
+    const leagueBps = await campaign.leagueFeeBps();
 
-    // fee recipient got fee
+    const expectedLeagueFee = (gross * BigInt(leagueBps)) / 10_000n;
+    const expectedProtocolNet = fee - expectedLeagueFee;
+
     const feeAfter = await getBalance(await feeRecipient.getAddress());
-    expect(feeAfter - feeBefore).to.eq(fee);
+    const leagueAfter = await getBalance(await lpReceiver.getAddress());
 
-    // campaign balance decreases by gross
+    expect(feeAfter - feeBefore).to.eq(expectedProtocolNet);
+    expect(leagueAfter - leagueBefore).to.eq(expectedLeagueFee);
+// campaign balance decreases by gross
     const campAfter = await getBalance(await campaign.getAddress());
     expect(campBefore - campAfter).to.eq(gross);
 
@@ -192,6 +206,8 @@ describe("LaunchCampaign", function () {
       graduationTarget: ethers.parseEther("1"),
       liquidityBps: 8000,
       protocolFeeBps: 200,
+      leagueFeeBps: 25,
+      leagueReceiver: await owner.getAddress(),
       router: await router.getAddress(),
       lpReceiver: await creator.getAddress(),
       feeRecipient: await owner.getAddress(),
@@ -236,40 +252,124 @@ await campaign.initialize(params);
   });
 
 
-  it("edge-case: quote enforces curveSupply but buyExactTokens does not; overselling is possible", async () => {
-    const { campaign, token, alice } = await loadFixture(createCampaignFixture);
+  it("buyExactTokens enforces curveSupply cap (no oversell)", async () => {
+    const { campaign, alice } = await loadFixture(createCampaignFixture);
 
     const curveSupply = await campaign.curveSupply();
-
-    // quote blocks oversell
-    await expect(campaign.quoteBuyExactTokens(curveSupply + 1n)).to.be.revertedWith("sold out");
-
-    // buy path currently does not enforce this (sold can exceed curveSupply)
     const amountOut = curveSupply + 1n;
-    const maxCost = (await campaign.quoteBuyExactTokens(curveSupply)) + ethers.parseEther("100"); // generous
-    await expect(campaign.connect(alice).buyExactTokens(amountOut, maxCost, { value: maxCost })).to.not.be.reverted;
 
-    expect(await campaign.sold()).to.eq(amountOut);
-    expect(await token.balanceOf(await alice.getAddress())).to.eq(amountOut);
+    // generous maxCost; function should still revert on sold out
+    const maxCost = (await campaign.quoteBuyExactTokens(curveSupply)) + ethers.parseEther("100");
+    await expect(campaign.connect(alice).buyExactTokens(amountOut, maxCost, { value: maxCost }))
+      .to.be.revertedWith("sold out");
   });
 
-  it("edge-case: buyExactTokens / sellExactTokens accept zero amounts while quote functions reject them", async () => {
-    const { campaign, token, alice } = await loadFixture(createCampaignFixture);
+  it("buyExactTokens / sellExactTokens reject zero amounts (consistent with quote)", async () => {
+    const { campaign, alice } = await loadFixture(createCampaignFixture);
 
-    // buy 0 succeeds (no-op)
-    await expect(campaign.connect(alice).buyExactTokens(0n, 0n, { value: 0n })).to.not.be.reverted;
+    await expect(campaign.connect(alice).buyExactTokens(0n, 0n, { value: 0n }))
+      .to.be.revertedWith("zero amount");
 
-    // Need tokens to test sell 0 path: buy small amount first
-    const amountOut = ethers.parseEther("1");
-    const totalBuy = await campaign.quoteBuyExactTokens(amountOut);
-    await campaign.connect(alice).buyExactTokens(amountOut, totalBuy, { value: totalBuy });
+    await expect(campaign.connect(alice).sellExactTokens(0n, 0n))
+      .to.be.revertedWith("zero amount");
+  });
 
-    await token.connect(alice).approve(await campaign.getAddress(), 0n);
-    await expect(campaign.connect(alice).sellExactTokens(0n, 0n)).to.not.be.reverted;
+  it("fee receivers cannot DOS: feeRecipient revert escrows; leagueReceiver router forward failure doesn't revert", async () => {
+    const { creator, owner, alice } = await deployCoreFixture();
 
-    // quote paths reject zeros
-    await expect(campaign.quoteBuyExactTokens(0n)).to.be.revertedWith("zero amount");
-    await expect(campaign.quoteSellExactTokens(0n)).to.be.revertedWith("zero amount");
+    // feeRecipient that rejects native transfers
+    const Reverting = await ethers.getContractFactory("RevertingReceiver");
+    const feeRecipient = await Reverting.deploy();
+    await feeRecipient.waitForDeployment();
+
+    // vault that rejects native transfers, forcing the TreasuryRouter to emit ForwardFailed but not revert
+    const vault = await Reverting.deploy();
+    await vault.waitForDeployment();
+
+    const TreasuryRouter = await ethers.getContractFactory("TreasuryRouter");
+    const leagueReceiver = await TreasuryRouter.deploy(
+      await owner.getAddress(),
+      await vault.getAddress(),
+      3600
+    );
+    await leagueReceiver.waitForDeployment();
+
+    const Router = await ethers.getContractFactory("MockRouter");
+    const dexRouter = await Router.deploy(ethers.ZeroAddress, ethers.ZeroAddress);
+    await dexRouter.waitForDeployment();
+
+    // Deploy campaign via clone so we can set feeRecipient/leagueReceiver explicitly
+    const Campaign = await ethers.getContractFactory("LaunchCampaign");
+    const impl = await Campaign.deploy();
+    await impl.waitForDeployment();
+
+    const implAddr = await impl.getAddress();
+    const minimalProxyBytecode =
+      "0x3d602d80600a3d3981f3363d3d373d3d3d363d73" +
+      implAddr.slice(2).toLowerCase() +
+      "5af43d82803e903d91602b57fd5bf3";
+    const txClone = await creator.sendTransaction({ data: minimalProxyBytecode });
+    const receipt = await txClone.wait();
+    const cloneAddr = receipt!.contractAddress;
+
+    const campaign = Campaign.attach(cloneAddr);
+    const params = {
+      name: "T",
+      symbol: "T",
+      logoURI: "ipfs://logo",
+      xAccount: "",
+      website: "",
+      extraLink: "",
+      totalSupply: ethers.parseEther("1000"),
+      curveBps: 5000,
+      liquidityTokenBps: 4000,
+      basePrice: 10n ** 12n,
+      priceSlope: 10n ** 9n,
+      graduationTarget: ethers.parseEther("1"),
+      liquidityBps: 8000,
+      protocolFeeBps: 200,
+      leagueFeeBps: 25,
+      leagueReceiver: await leagueReceiver.getAddress(),
+      router: await dexRouter.getAddress(),
+      lpReceiver: await creator.getAddress(),
+      feeRecipient: await feeRecipient.getAddress(),
+      creator: await creator.getAddress(),
+      factory: await creator.getAddress(),
+    };
+    await campaign.initialize(params);
+
+    const token = await ethers.getContractAt("LaunchToken", await campaign.token());
+
+    const base = await campaign.basePrice();
+    const slope = await campaign.priceSlope();
+    const feeBps = await campaign.protocolFeeBps();
+
+    const amountOut = ethers.parseEther("10");
+    const sold0 = await campaign.sold();
+
+    const { costNoFee, fee, total } = quoteBuyExactTokens(
+      BigInt(sold0),
+      BigInt(amountOut),
+      BigInt(base),
+      BigInt(slope),
+      BigInt(feeBps)
+    );
+
+    const leagueFee = (costNoFee * 25n) / 10_000n;
+    const protocolNet = fee - leagueFee;
+
+    const tx = await campaign.connect(alice).buyExactTokens(amountOut, total, { value: total });
+
+    // Purchase succeeded even though feeRecipient rejects transfers
+    expect(await token.balanceOf(await alice.getAddress())).to.eq(amountOut);
+
+    // FeeRecipient portion escrowed
+    await expect(tx).to.emit(campaign, "NativeEscrowed").withArgs(await feeRecipient.getAddress(), protocolNet);
+    expect(await campaign.pendingNative(await feeRecipient.getAddress())).to.eq(protocolNet);
+
+    // LeagueReceiver is the TreasuryRouter; forwarding fails but doesn't revert; router retains funds
+    await expect(tx).to.emit(leagueReceiver, "ForwardFailed").withArgs(await vault.getAddress(), leagueFee);
+    expect(await ethers.provider.getBalance(await leagueReceiver.getAddress())).to.eq(leagueFee);
   });
 
   it("finalize: reverts unless threshold met; onlyOwner; marks launched; adds liquidity; burns unsold; transfers creatorReserve; pays creator; enables trading", async () => {
@@ -292,6 +392,7 @@ await campaign.initialize(params);
     const ownerAddr = await creator.getAddress();
     const creatorBalBefore = await getBalance(ownerAddr);
     const feeBefore = await getBalance(await feeRecipient.getAddress());
+    const leagueBefore = await getBalance(await lpReceiver.getAddress());
 
     const tx = await campaign.connect(creator).finalize(0n, 0n);
     const receipt = await tx.wait();

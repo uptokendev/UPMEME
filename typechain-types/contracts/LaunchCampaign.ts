@@ -39,6 +39,8 @@ export declare namespace LaunchCampaign {
     graduationTarget: BigNumberish;
     liquidityBps: BigNumberish;
     protocolFeeBps: BigNumberish;
+    leagueFeeBps: BigNumberish;
+    leagueReceiver: AddressLike;
     router: AddressLike;
     lpReceiver: AddressLike;
     feeRecipient: AddressLike;
@@ -61,6 +63,8 @@ export declare namespace LaunchCampaign {
     graduationTarget: bigint,
     liquidityBps: bigint,
     protocolFeeBps: bigint,
+    leagueFeeBps: bigint,
+    leagueReceiver: string,
     router: string,
     lpReceiver: string,
     feeRecipient: string,
@@ -81,6 +85,8 @@ export declare namespace LaunchCampaign {
     graduationTarget: bigint;
     liquidityBps: bigint;
     protocolFeeBps: bigint;
+    leagueFeeBps: bigint;
+    leagueReceiver: string;
     router: string;
     lpReceiver: string;
     feeRecipient: string;
@@ -98,6 +104,7 @@ export interface LaunchCampaignInterface extends Interface {
       | "buyExactTokens"
       | "buyExactTokensFor"
       | "buyersCount"
+      | "claimPendingNative"
       | "creatorReserve"
       | "currentPrice"
       | "curveSupply"
@@ -110,11 +117,14 @@ export interface LaunchCampaignInterface extends Interface {
       | "hasBought"
       | "initialize"
       | "launched"
+      | "leagueFeeBps"
+      | "leagueReceiver"
       | "liquidityBps"
       | "liquiditySupply"
       | "logoURI"
       | "lpReceiver"
       | "owner"
+      | "pendingNative"
       | "priceSlope"
       | "protocolFeeBps"
       | "quoteBuyExactBnb"
@@ -136,6 +146,8 @@ export interface LaunchCampaignInterface extends Interface {
   getEvent(
     nameOrSignatureOrTopic:
       | "CampaignFinalized"
+      | "NativeClaimed"
+      | "NativeEscrowed"
       | "OwnershipTransferred"
       | "TokensPurchased"
       | "TokensSold"
@@ -160,6 +172,10 @@ export interface LaunchCampaignInterface extends Interface {
   ): string;
   encodeFunctionData(
     functionFragment: "buyersCount",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "claimPendingNative",
     values?: undefined
   ): string;
   encodeFunctionData(
@@ -202,6 +218,14 @@ export interface LaunchCampaignInterface extends Interface {
   ): string;
   encodeFunctionData(functionFragment: "launched", values?: undefined): string;
   encodeFunctionData(
+    functionFragment: "leagueFeeBps",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "leagueReceiver",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
     functionFragment: "liquidityBps",
     values?: undefined
   ): string;
@@ -215,6 +239,10 @@ export interface LaunchCampaignInterface extends Interface {
     values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
+  encodeFunctionData(
+    functionFragment: "pendingNative",
+    values: [AddressLike]
+  ): string;
   encodeFunctionData(
     functionFragment: "priceSlope",
     values?: undefined
@@ -287,6 +315,10 @@ export interface LaunchCampaignInterface extends Interface {
     data: BytesLike
   ): Result;
   decodeFunctionResult(
+    functionFragment: "claimPendingNative",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "creatorReserve",
     data: BytesLike
   ): Result;
@@ -317,6 +349,14 @@ export interface LaunchCampaignInterface extends Interface {
   decodeFunctionResult(functionFragment: "initialize", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "launched", data: BytesLike): Result;
   decodeFunctionResult(
+    functionFragment: "leagueFeeBps",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "leagueReceiver",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "liquidityBps",
     data: BytesLike
   ): Result;
@@ -327,6 +367,10 @@ export interface LaunchCampaignInterface extends Interface {
   decodeFunctionResult(functionFragment: "logoURI", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "lpReceiver", data: BytesLike): Result;
   decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
+  decodeFunctionResult(
+    functionFragment: "pendingNative",
+    data: BytesLike
+  ): Result;
   decodeFunctionResult(functionFragment: "priceSlope", data: BytesLike): Result;
   decodeFunctionResult(
     functionFragment: "protocolFeeBps",
@@ -396,6 +440,32 @@ export namespace CampaignFinalizedEvent {
     liquidityBnb: bigint;
     protocolFee: bigint;
     creatorPayout: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace NativeClaimedEvent {
+  export type InputTuple = [beneficiary: AddressLike, amount: BigNumberish];
+  export type OutputTuple = [beneficiary: string, amount: bigint];
+  export interface OutputObject {
+    beneficiary: string;
+    amount: bigint;
+  }
+  export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
+  export type Filter = TypedDeferredTopicFilter<Event>;
+  export type Log = TypedEventLog<Event>;
+  export type LogDescription = TypedLogDescription<Event>;
+}
+
+export namespace NativeEscrowedEvent {
+  export type InputTuple = [beneficiary: AddressLike, amount: BigNumberish];
+  export type OutputTuple = [beneficiary: string, amount: bigint];
+  export interface OutputObject {
+    beneficiary: string;
+    amount: bigint;
   }
   export type Event = TypedContractEvent<InputTuple, OutputTuple, OutputObject>;
   export type Filter = TypedDeferredTopicFilter<Event>;
@@ -523,6 +593,8 @@ export interface LaunchCampaign extends BaseContract {
 
   buyersCount: TypedContractMethod<[], [bigint], "view">;
 
+  claimPendingNative: TypedContractMethod<[], [bigint], "nonpayable">;
+
   creatorReserve: TypedContractMethod<[], [bigint], "view">;
 
   currentPrice: TypedContractMethod<[], [bigint], "view">;
@@ -555,6 +627,10 @@ export interface LaunchCampaign extends BaseContract {
 
   launched: TypedContractMethod<[], [boolean], "view">;
 
+  leagueFeeBps: TypedContractMethod<[], [bigint], "view">;
+
+  leagueReceiver: TypedContractMethod<[], [string], "view">;
+
   liquidityBps: TypedContractMethod<[], [bigint], "view">;
 
   liquiditySupply: TypedContractMethod<[], [bigint], "view">;
@@ -564,6 +640,8 @@ export interface LaunchCampaign extends BaseContract {
   lpReceiver: TypedContractMethod<[], [string], "view">;
 
   owner: TypedContractMethod<[], [string], "view">;
+
+  pendingNative: TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
 
   priceSlope: TypedContractMethod<[], [bigint], "view">;
 
@@ -662,6 +740,9 @@ export interface LaunchCampaign extends BaseContract {
     nameOrSignature: "buyersCount"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
+    nameOrSignature: "claimPendingNative"
+  ): TypedContractMethod<[], [bigint], "nonpayable">;
+  getFunction(
     nameOrSignature: "creatorReserve"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -706,6 +787,12 @@ export interface LaunchCampaign extends BaseContract {
     nameOrSignature: "launched"
   ): TypedContractMethod<[], [boolean], "view">;
   getFunction(
+    nameOrSignature: "leagueFeeBps"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "leagueReceiver"
+  ): TypedContractMethod<[], [string], "view">;
+  getFunction(
     nameOrSignature: "liquidityBps"
   ): TypedContractMethod<[], [bigint], "view">;
   getFunction(
@@ -720,6 +807,9 @@ export interface LaunchCampaign extends BaseContract {
   getFunction(
     nameOrSignature: "owner"
   ): TypedContractMethod<[], [string], "view">;
+  getFunction(
+    nameOrSignature: "pendingNative"
+  ): TypedContractMethod<[arg0: AddressLike], [bigint], "view">;
   getFunction(
     nameOrSignature: "priceSlope"
   ): TypedContractMethod<[], [bigint], "view">;
@@ -791,6 +881,20 @@ export interface LaunchCampaign extends BaseContract {
     CampaignFinalizedEvent.OutputObject
   >;
   getEvent(
+    key: "NativeClaimed"
+  ): TypedContractEvent<
+    NativeClaimedEvent.InputTuple,
+    NativeClaimedEvent.OutputTuple,
+    NativeClaimedEvent.OutputObject
+  >;
+  getEvent(
+    key: "NativeEscrowed"
+  ): TypedContractEvent<
+    NativeEscrowedEvent.InputTuple,
+    NativeEscrowedEvent.OutputTuple,
+    NativeEscrowedEvent.OutputObject
+  >;
+  getEvent(
     key: "OwnershipTransferred"
   ): TypedContractEvent<
     OwnershipTransferredEvent.InputTuple,
@@ -822,6 +926,28 @@ export interface LaunchCampaign extends BaseContract {
       CampaignFinalizedEvent.InputTuple,
       CampaignFinalizedEvent.OutputTuple,
       CampaignFinalizedEvent.OutputObject
+    >;
+
+    "NativeClaimed(address,uint256)": TypedContractEvent<
+      NativeClaimedEvent.InputTuple,
+      NativeClaimedEvent.OutputTuple,
+      NativeClaimedEvent.OutputObject
+    >;
+    NativeClaimed: TypedContractEvent<
+      NativeClaimedEvent.InputTuple,
+      NativeClaimedEvent.OutputTuple,
+      NativeClaimedEvent.OutputObject
+    >;
+
+    "NativeEscrowed(address,uint256)": TypedContractEvent<
+      NativeEscrowedEvent.InputTuple,
+      NativeEscrowedEvent.OutputTuple,
+      NativeEscrowedEvent.OutputObject
+    >;
+    NativeEscrowed: TypedContractEvent<
+      NativeEscrowedEvent.InputTuple,
+      NativeEscrowedEvent.OutputTuple,
+      NativeEscrowedEvent.OutputObject
     >;
 
     "OwnershipTransferred(address,address)": TypedContractEvent<

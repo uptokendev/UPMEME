@@ -18,7 +18,7 @@ export async function deployCoreFixture(): Promise<CoreFixture> {
   const router = await Router.deploy(ethers.ZeroAddress, ethers.ZeroAddress);
 
   const Factory = await ethers.getContractFactory("LaunchFactory");
-  const factory = await Factory.deploy(await router.getAddress());
+  const factory = await Factory.deploy(await router.getAddress(), await lpReceiver.getAddress());
 
   // Make fee recipient explicit for assertions
   await factory.connect(owner).setFeeRecipient(await feeRecipient.getAddress());

@@ -14,6 +14,7 @@ import { LoadingScreen } from "@/components/LoadingScreen";
 import Showcase from "./pages/Showcase";
 import Create from "./pages/Create";
 import UpDashboard from "./pages/UpDashboard";
+import League from "./pages/League";
 import Profile from "./pages/Profile";
 import TokenDetails from "./pages/TokenDetails";
 import NotFound from "./pages/NotFound";
@@ -55,6 +56,7 @@ const App = () => {
                   <Route path="/" element={<Showcase />} />
                   <Route path="/create" element={<Create />} />
                   <Route path="/up-dashboard" element={<UpDashboard />} />
+                  <Route path="/league" element={<League />} />
                   <Route path="/profile" element={<Profile />} />
                   <Route path="/token/:campaignAddress" element={<TokenDetails />} />
                   {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

@@ -4,16 +4,20 @@ import { deployCoreFixture } from "./fixtures/core";
 import { quoteBuyExactTokens } from "./helpers/math";
 
 describe("LaunchFactory", function () {
+  
+  
   it("constructor requires router != 0 and sets defaults", async () => {
     const Factory = await ethers.getContractFactory("LaunchFactory");
-    await expect(Factory.deploy(ethers.ZeroAddress)).to.be.revertedWithCustomError(
-      Factory,
-      "RouterZero"
-    );
+    const [deployer] = await ethers.getSigners();
+    await expect(
+  Factory.deploy(ethers.ZeroAddress, await deployer.getAddress())
+).to.be.revertedWithCustomError(Factory, "RouterZero");
 
     const Router = await ethers.getContractFactory("MockRouter");
     const router = await Router.deploy(ethers.ZeroAddress, ethers.ZeroAddress);
-    const factory = await Factory.deploy(await router.getAddress());
+    await expect(Factory.deploy(await router.getAddress(), ethers.ZeroAddress)).to.be.revertedWithCustomError(Factory, "RecipientZero");
+
+    const factory = await Factory.deploy(await router.getAddress(), await deployer.getAddress());
 
     expect(await factory.router()).to.eq(await router.getAddress());
     expect((await factory.config()).totalSupply).to.be.gt(0n);
@@ -171,6 +175,11 @@ describe("LaunchFactory", function () {
       "FeeTooHigh"
     );
 
+    await expect(factory.connect(owner).setProtocolFee(24n)).to.be.revertedWithCustomError(
+      factory,
+      "FeeTooLowForLeague"
+    );
+
     await expect(factory.connect(owner).setProtocolFee(123n)).to.emit(factory, "ProtocolFeeUpdated").withArgs(123n);
     expect(await factory.protocolFeeBps()).to.eq(123n);
 
@@ -210,4 +219,35 @@ describe("LaunchFactory", function () {
       })
     ).to.be.revertedWithCustomError(factory, "InvalidCurveBps");
   });
+
+  it("createCampaign: rejects override params above bounds", async () => {
+    const { factory, creator, owner } = await deployCoreFixture();
+
+    const baseTooHigh = ethers.parseEther("1001");
+    const targetTooHigh = ethers.parseEther("1000001");
+    const slopeTooHigh = 10n ** 36n + 1n;
+
+    const reqBase = {
+      name: "MyToken",
+      symbol: "MYT",
+      logoURI: "ipfs://logo",
+      xAccount: "",
+      website: "",
+      extraLink: "",
+      basePrice: baseTooHigh,
+      priceSlope: 0n,
+      graduationTarget: 0n,
+      lpReceiver: ethers.ZeroAddress,
+      initialBuyBnbWei: 0n,
+    };
+
+    await expect(factory.connect(creator).createCampaign(reqBase as any)).to.be.revertedWithCustomError(factory, "ParamTooHigh");
+
+    await expect(factory.connect(creator).createCampaign({ ...reqBase, basePrice: 0n, priceSlope: slopeTooHigh } as any))
+      .to.be.revertedWithCustomError(factory, "ParamTooHigh");
+
+    await expect(factory.connect(creator).createCampaign({ ...reqBase, basePrice: 0n, priceSlope: 0n, graduationTarget: targetTooHigh } as any))
+      .to.be.revertedWithCustomError(factory, "ParamTooHigh");
+  });
+
 });

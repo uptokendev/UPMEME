@@ -133,6 +133,10 @@ export declare namespace LaunchFactory {
 export interface LaunchFactoryInterface extends Interface {
   getFunction(
     nameOrSignature:
+      | "LEAGUE_FEE_BPS"
+      | "MAX_BASE_PRICE"
+      | "MAX_GRADUATION_TARGET"
+      | "MAX_PRICE_SLOPE"
       | "campaignImplementation"
       | "campaignsCount"
       | "config"
@@ -140,6 +144,7 @@ export interface LaunchFactoryInterface extends Interface {
       | "feeRecipient"
       | "getCampaign"
       | "getCampaignPage"
+      | "leagueReceiver"
       | "owner"
       | "protocolFeeBps"
       | "quoteInitialBuyTotal"
@@ -162,6 +167,22 @@ export interface LaunchFactoryInterface extends Interface {
       | "RouterUpdated"
   ): EventFragment;
 
+  encodeFunctionData(
+    functionFragment: "LEAGUE_FEE_BPS",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MAX_BASE_PRICE",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MAX_GRADUATION_TARGET",
+    values?: undefined
+  ): string;
+  encodeFunctionData(
+    functionFragment: "MAX_PRICE_SLOPE",
+    values?: undefined
+  ): string;
   encodeFunctionData(
     functionFragment: "campaignImplementation",
     values?: undefined
@@ -186,6 +207,10 @@ export interface LaunchFactoryInterface extends Interface {
   encodeFunctionData(
     functionFragment: "getCampaignPage",
     values: [BigNumberish, BigNumberish]
+  ): string;
+  encodeFunctionData(
+    functionFragment: "leagueReceiver",
+    values?: undefined
   ): string;
   encodeFunctionData(functionFragment: "owner", values?: undefined): string;
   encodeFunctionData(
@@ -223,6 +248,22 @@ export interface LaunchFactoryInterface extends Interface {
   ): string;
 
   decodeFunctionResult(
+    functionFragment: "LEAGUE_FEE_BPS",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MAX_BASE_PRICE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MAX_GRADUATION_TARGET",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "MAX_PRICE_SLOPE",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
     functionFragment: "campaignImplementation",
     data: BytesLike
   ): Result;
@@ -245,6 +286,10 @@ export interface LaunchFactoryInterface extends Interface {
   ): Result;
   decodeFunctionResult(
     functionFragment: "getCampaignPage",
+    data: BytesLike
+  ): Result;
+  decodeFunctionResult(
+    functionFragment: "leagueReceiver",
     data: BytesLike
   ): Result;
   decodeFunctionResult(functionFragment: "owner", data: BytesLike): Result;
@@ -412,6 +457,14 @@ export interface LaunchFactory extends BaseContract {
     event?: TCEvent
   ): Promise<this>;
 
+  LEAGUE_FEE_BPS: TypedContractMethod<[], [bigint], "view">;
+
+  MAX_BASE_PRICE: TypedContractMethod<[], [bigint], "view">;
+
+  MAX_GRADUATION_TARGET: TypedContractMethod<[], [bigint], "view">;
+
+  MAX_PRICE_SLOPE: TypedContractMethod<[], [bigint], "view">;
+
   campaignImplementation: TypedContractMethod<[], [string], "view">;
 
   campaignsCount: TypedContractMethod<[], [bigint], "view">;
@@ -451,6 +504,8 @@ export interface LaunchFactory extends BaseContract {
     [LaunchFactory.CampaignInfoStructOutput[]],
     "view"
   >;
+
+  leagueReceiver: TypedContractMethod<[], [string], "view">;
 
   owner: TypedContractMethod<[], [string], "view">;
 
@@ -505,6 +560,18 @@ export interface LaunchFactory extends BaseContract {
   ): T;
 
   getFunction(
+    nameOrSignature: "LEAGUE_FEE_BPS"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MAX_BASE_PRICE"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MAX_GRADUATION_TARGET"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
+    nameOrSignature: "MAX_PRICE_SLOPE"
+  ): TypedContractMethod<[], [bigint], "view">;
+  getFunction(
     nameOrSignature: "campaignImplementation"
   ): TypedContractMethod<[], [string], "view">;
   getFunction(
@@ -551,6 +618,9 @@ export interface LaunchFactory extends BaseContract {
     [LaunchFactory.CampaignInfoStructOutput[]],
     "view"
   >;
+  getFunction(
+    nameOrSignature: "leagueReceiver"
+  ): TypedContractMethod<[], [string], "view">;
   getFunction(
     nameOrSignature: "owner"
   ): TypedContractMethod<[], [string], "view">;

@@ -4,3 +4,4 @@
 export type { MockERC20 } from "./MockERC20";
 export type { MockFeeOnTransferERC20 } from "./MockFeeOnTransferERC20";
 export type { MockRouter } from "./MockRouter";
+export type { RevertingReceiver } from "./RevertingReceiver";
