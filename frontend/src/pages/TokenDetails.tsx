@@ -136,23 +136,11 @@ const TokenDetails = () => {
     }
   }, [displayDenom]);
 
-
-
   // Launchpad hooks + state for the on-chain data
   const { fetchCampaigns, fetchCampaignSummary, fetchCampaignMetrics, fetchCampaignActivity, buyTokens, sellTokens } = useLaunchpad();
   const wallet = useWallet();
+  const chainIdForStorage = useMemo(() => getActiveChainId(wallet.chainId), [wallet.chainId]);
   const [campaign, setCampaign] = useState<CampaignInfo | null>(null);
-  // Match carousel behavior: prefer the campaign's chainId when available (prevents wrong-network keys)
-const chainIdForStorage = useMemo(() => {
-  const campaignChainId = Number((campaign as any)?.chainId ?? 0);
-  return getActiveChainId(campaignChainId || wallet.chainId);
-}, [campaign, wallet.chainId]);
-
-const canonicalCampaignAddress = useMemo(() => {
-  const addr = String((campaign as any)?.campaign ?? "").trim();
-  return /^0x[a-fA-F0-9]{40}$/.test(addr) ? addr.toLowerCase() : "";
-}, [campaign]);
-  
   const [metrics, setMetrics] = useState<CampaignMetrics | null>(null);
   const [summary, setSummary] = useState<CampaignSummary | null>(null);
   const [activity, setActivity] = useState<CampaignActivity | null>(null);
@@ -648,43 +636,6 @@ const bnbUsd = useMemo(() => {
     const usd = mcBnb * bnbUsd;
     return Number.isFinite(usd) && usd > 0 ? formatCompactUsd(usd) : null;
   }, [tokenData.marketCap, rtStats?.marketcapBnb, bnbUsd]);
-
-  useEffect(() => {
-  // Keep this log tight and comparable with carousel/chart.
-  const addrForKey = String((campaignAddress ?? campaign?.campaign ?? "")).toLowerCase();
-
-  console.debug("[ATH TokenDetails]", {
-    chainIdForStorage,
-    addrForKey,
-    bnbUsd,
-    // realtime inputs
-    rt_marketcapBnb: rtStats?.marketcapBnb,
-    rt_lastPriceBnb: rtStats?.lastPriceBnb,
-
-    // summary + tokenData labels (string sources)
-    summary_marketCap_label: summary?.stats?.marketCap,
-    tokenData_marketCap_label: tokenData.marketCap,
-
-    // the actual USD label that AthBar consumes here
-    marketCapUsdLabel,
-
-    // helpful: metrics-sourced currentPrice (BNB)
-    metrics_currentPrice_bnb:
-      metrics?.currentPrice ? Number(ethers.formatUnits(metrics.currentPrice, 18)) : null,
-  });
-}, [
-  chainIdForStorage,
-  campaignAddress,
-  campaign?.campaign,
-  bnbUsd,
-  rtStats?.marketcapBnb,
-  rtStats?.lastPriceBnb,
-  summary?.stats?.marketCap,
-  tokenData.marketCap,
-  marketCapUsdLabel,
-  metrics?.currentPrice,
-]);
-
 
   const priceDisplay = useMemo(() => {
     const bnbLabel = tokenData.price;
@@ -1901,10 +1852,10 @@ style={!isMobile ? { flex: "2" } : undefined}
               <div className="flex items-center gap-2 w-full md:w-auto md:justify-end">
                 {!isDexStage && (
                   <AthBar
-  currentLabel={marketCapUsdLabel ?? undefined}
-  storageKey={`ath:${String(chainIdForStorage)}:${String((campaignAddress ?? campaign?.campaign ?? "")).toLowerCase()}`}
-  className="w-full md:w-auto md:max-w-[320px]"
-/>
+                    currentLabel={marketCapUsdLabel ?? undefined}
+                    storageKey={`ath:${String(chainIdForStorage)}:${String((campaignAddress ?? campaign?.campaign ?? "")).toLowerCase()}`}
+                    className="w-full md:w-auto md:max-w-[320px]"
+                  />
                 )}
 
                 {isDexStage && dexBaseUrl && (
