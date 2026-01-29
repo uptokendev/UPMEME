@@ -54,13 +54,9 @@ type AthBarProps = {
   storageKey: string;
   /** Optional className wrapper. */
   className?: string;
-  /** Width of the bar area in pixels (defaults to 240). */
-  barWidthPx?: number;
-  /** Max-width for the bar area (CSS length). Defaults to "55vw". */
-  barMaxWidth?: string;
 };
 
-export function AthBar({ currentLabel, storageKey, className, barWidthPx = 240, barMaxWidth = "55vw" }: AthBarProps) {
+export function AthBar({ currentLabel, storageKey, className }: AthBarProps) {
   const current = useMemo(() => parseCompactUsd(currentLabel), [currentLabel]);
 
   // Bump the storage format version to avoid showing stale ATH values from older (buggy) USD calculations.
@@ -139,10 +135,7 @@ export function AthBar({ currentLabel, storageKey, className, barWidthPx = 240, 
       </style>
 
       <div className="flex items-center gap-2">
-        <div
-          className="relative h-[10px] rounded-full bg-muted/40 overflow-hidden border border-border/40"
-          style={{ width: `${barWidthPx}px`, maxWidth: barMaxWidth }}
-        >
+        <div className="relative h-[10px] w-[240px] max-w-[55vw] rounded-full bg-muted/40 overflow-hidden border border-border/40">
           {/* Fill */}
           <div
             className="absolute inset-y-0 left-0 rounded-full"
@@ -204,9 +197,7 @@ export function AthBar({ currentLabel, storageKey, className, barWidthPx = 240, 
         <div className="text-[11px] whitespace-nowrap">
           <span className="text-muted-foreground">ATH</span>{" "}
           <span className="font-semibold text-foreground">{athLabel}</span>
-          {ath != null && current != null && Number.isFinite(current) && ath > 0 && (
-            <span className="ml-1 text-[10px] text-muted-foreground/80">{pct}%</span>
-          )}
+          {ath != null && current != null && Number.isFinite(current) && ath > 0 }
         </div>
       </div>
     </div>

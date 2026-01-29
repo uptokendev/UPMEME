@@ -855,7 +855,6 @@ const CardView = ({
 
           {/* Bottom: MC (USD) + ATH bar */}
           <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-retro text-accent whitespace-nowrap">MC {mcapDisplay}</span>
             <AthBar
               currentLabel={card.marketCapUsdLabel ?? null}
               storageKey={`ath:${String(chainIdForStorage)}:${String(card.campaignAddress).toLowerCase()}`}
