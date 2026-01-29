@@ -21,6 +21,7 @@ type LargestBuyRow = LeagueBase & {
   tx_hash: string;
   block_number: number;
   block_time: string;
+  log_index?: number | null;
 };
 
 type GraduationRow = LeagueBase & {
@@ -277,7 +278,7 @@ export default function League({ chainId = 97 }: { chainId?: number }) {
           ) : largestBuys.length ? (
             largestBuys.map((r, idx) => (
               <button
-                key={r.tx_hash + ":" + String(r.log_index)}
+                key={`${r.tx_hash}:${String(r.log_index ?? idx)}`}
                 type="button"
                 onClick={() => navigate(`/token/${r.campaign_address}`)}
                 className="grid grid-cols-12 gap-2 px-4 py-3 text-left hover:bg-card transition-colors"
@@ -310,7 +311,7 @@ export default function League({ chainId = 97 }: { chainId?: number }) {
             <span className="font-semibold">Straight UP</span>: counts only bonding-curve <code>TokensSold</code> events. Any sell disqualifies.
           </li>
           <li>
-            <span className="font-semibold">Fastest Graduation</span>: uses on-chain timestamps between factory creation and <code>CampaignFinalized</code>, with >= 25 unique buyers.
+            <span className="font-semibold">Fastest Graduation</span>: uses on-chain timestamps between factory creation and <code>CampaignFinalized</code>, with ≥= 25 unique buyers.
           </li>
           <li>
             <span className="font-semibold">Largest Buys</span>: ranks single <code>TokensPurchased</code> events by BNB cost, excluding creator / feeRecipient / campaign contract.
