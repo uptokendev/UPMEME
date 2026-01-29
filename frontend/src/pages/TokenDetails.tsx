@@ -1848,7 +1848,7 @@ style={!isMobile ? { flex: "2" } : undefined}
                 {!isDexStage && (
                   <AthBar
                     currentLabel={marketCapUsdLabel ?? undefined}
-                    storageKey={`ath:${String(wallet.chainId ?? 97)}:${String((campaign?.campaign ?? campaignAddress ?? "")).toLowerCase()}`}
+                    storageKey={`ath:${String(wallet.chainId ?? 97)}:${String((campaignAddress ?? "")).toLowerCase()}`}
                     className="w-full md:w-auto md:max-w-[320px]"
                   />
                 )}
