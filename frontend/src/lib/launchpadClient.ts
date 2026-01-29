@@ -93,7 +93,8 @@ const formatBnbFromWei = (wei: bigint): string => {
     const raw = ethers.formatEther(wei);
     const n = Number(raw);
     if (!Number.isFinite(n)) return `${raw} BNB`;
-    const pretty = n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
+    const abs = Math.abs(n);
+    const pretty = abs >= 1 ? n.toFixed(2) : abs >= 0.01 ? n.toFixed(4) : abs >= 0.0001 ? n.toFixed(6) : n.toFixed(8);
     return `${pretty} BNB`;
   } catch {
     return `${wei.toString()} wei`;

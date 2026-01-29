@@ -52,7 +52,8 @@ function formatCompactUsd(n: number | null): string | null {
   if (abs >= 1e9) return fmt(abs / 1e9, "B");
   if (abs >= 1e6) return fmt(abs / 1e6, "M");
   if (abs >= 1e3) return fmt(abs / 1e3, "K");
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2)}`;
+  const decimals = abs >= 100 ? 0 : abs >= 10 ? 1 : abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6;
+  return `${sign}$${abs.toFixed(decimals)}`;
 }
 
 export function FeaturedCampaigns({ chainId = 97, limit = 10 }: { chainId?: number; limit?: number }) {

@@ -38,13 +38,20 @@ function formatCompactUsd(n: number | null | undefined): string {
   if (n == null || !Number.isFinite(n)) return "—";
   const abs = Math.abs(n);
   const sign = n < 0 ? "-" : "";
-  const fmt = (v: number, suffix: string) => `${sign}$${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)}${suffix}`;
+
+  const fmt = (v: number, suffix: string) => {
+    const decimals = v >= 100 ? 0 : v >= 10 ? 1 : 2;
+    return `${sign}$${v.toFixed(decimals)}${suffix}`;
+  };
 
   if (abs >= 1e12) return fmt(abs / 1e12, "T");
-  if (abs >= 1e9)  return fmt(abs / 1e9, "B");
-  if (abs >= 1e6)  return fmt(abs / 1e6, "M");
-  if (abs >= 1e3)  return fmt(abs / 1e3, "K");
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2)}`;
+  if (abs >= 1e9) return fmt(abs / 1e9, "B");
+  if (abs >= 1e6) return fmt(abs / 1e6, "M");
+  if (abs >= 1e3) return fmt(abs / 1e3, "K");
+
+  // Small values: show more precision to avoid looking "wrong" on tiny MCAPs.
+  const decimals = abs >= 1 ? 2 : abs >= 0.01 ? 4 : 6;
+  return `${sign}$${abs.toFixed(decimals)}`;
 }
 
 type AthBarProps = {
@@ -54,9 +61,13 @@ type AthBarProps = {
   storageKey: string;
   /** Optional className wrapper. */
   className?: string;
+  /** Optional fixed bar width in pixels (card-friendly). */
+  barWidthPx?: number;
+  /** Optional max-width for the bar (e.g. "100%"). */
+  barMaxWidth?: string;
 };
 
-export function AthBar({ currentLabel, storageKey, className }: AthBarProps) {
+export function AthBar({ currentLabel, storageKey, className, barWidthPx, barMaxWidth }: AthBarProps) {
   const current = useMemo(() => parseCompactUsd(currentLabel), [currentLabel]);
 
   // Bump the storage format version to avoid showing stale ATH values from older (buggy) USD calculations.
@@ -135,7 +146,13 @@ export function AthBar({ currentLabel, storageKey, className }: AthBarProps) {
       </style>
 
       <div className="flex items-center gap-2">
-        <div className="relative h-[10px] w-[240px] max-w-[55vw] rounded-full bg-muted/40 overflow-hidden border border-border/40">
+        <div
+          className="relative h-[10px] rounded-full bg-muted/40 overflow-hidden border border-border/40"
+          style={{
+            width: `${barWidthPx ?? 240}px`,
+            maxWidth: barMaxWidth ?? "55vw",
+          }}
+        >
           {/* Fill */}
           <div
             className="absolute inset-y-0 left-0 rounded-full"
@@ -197,7 +214,9 @@ export function AthBar({ currentLabel, storageKey, className }: AthBarProps) {
         <div className="text-[11px] whitespace-nowrap">
           <span className="text-muted-foreground">ATH</span>{" "}
           <span className="font-semibold text-foreground">{athLabel}</span>
-          {ath != null && current != null && Number.isFinite(current) && ath > 0 }
+          {ath != null && current != null && Number.isFinite(current) && ath > 0 && (
+            <span className="ml-1 text-[10px] text-muted-foreground/80">{pct}%</span>
+          )}
         </div>
       </div>
     </div>
