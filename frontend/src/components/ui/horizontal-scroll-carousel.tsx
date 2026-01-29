@@ -87,36 +87,6 @@ const PLACEHOLDER_CARDS: CarouselCard[] = [
 const isAddress = (s?: string) => /^0x[a-fA-F0-9]{40}$/.test((s ?? "").trim());
 const isZeroAddress = (s?: string) => /^0x0{40}$/.test((s ?? "").trim());
 
-function parseCompactNumber(input: string): number | null {
-  const raw = String(input ?? "").trim();
-  if (!raw || raw === "—") return null;
-
-  const first = raw.split(/\s+/)[0] ?? "";
-  const cleaned = first.replace(/[,$]/g, "");
-  const m = cleaned.match(/^(-?\d+(?:\.\d+)?)([KMBT])?$/i);
-  if (!m) {
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : null;
-  }
-  const n = Number(m[1]);
-  if (!Number.isFinite(n)) return null;
-  const suf = (m[2] ?? "").toUpperCase();
-  const mult = suf === "K" ? 1e3 : suf === "M" ? 1e6 : suf === "B" ? 1e9 : suf === "T" ? 1e12 : 1;
-  return n * mult;
-}
-
-function formatCompactUsd(n: number | null): string | null {
-  if (n == null || !Number.isFinite(n) || n <= 0) return null;
-  const abs = Math.abs(n);
-  const sign = n < 0 ? "-" : "";
-  const fmt = (v: number, suffix: string) => `${sign}$${v.toFixed(v >= 100 ? 0 : v >= 10 ? 1 : 2)}${suffix}`;
-  if (abs >= 1e12) return fmt(abs / 1e12, "T");
-  if (abs >= 1e9) return fmt(abs / 1e9, "B");
-  if (abs >= 1e6) return fmt(abs / 1e6, "M");
-  if (abs >= 1e3) return fmt(abs / 1e3, "K");
-  return `${sign}$${abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2)}`;
-}
-
 function normalizeWebsiteUrl(url?: string): string | undefined {
   const u = (url ?? "").trim();
   if (!u) return undefined;
