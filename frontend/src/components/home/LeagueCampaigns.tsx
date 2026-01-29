@@ -199,7 +199,7 @@ export function LeagueCampaigns({ chainId = 97, limit = 3 }: { chainId?: number;
           <GlowingEffect blur={18} spread={36} glow={true} disabled={false} movementDuration={1.6} className="pointer-events-none" />
           <div className="flex items-center justify-between">
             <div className="text-sm font-semibold">Fastest Graduation</div>
-            <div className="text-[11px] text-muted-foreground">>= 25 buyers</div>
+            <div className="text-[11px] text-muted-foreground">≥ 25 buyers</div>
           </div>
 
           <div className="mt-3 space-y-3">
