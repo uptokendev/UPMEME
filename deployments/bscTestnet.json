@@ -1,0 +1,15 @@
+{
+  "network": "bscTestnet",
+  "chainId": 97,
+  "deployer": "0x13AD79765e14927dF2c554d9662Bbe539e89C8e8",
+  "router": "0xD99D1c33F9fC3444f8101754aBC46c52416550D1",
+  "treasurySafe": "0x13ad79765e14927df2c554d9662bbe539e89c8e8",
+  "upgradeDelaySeconds": 172800,
+  "protocolFeeBps": "200",
+  "contracts": {
+    "TreasuryVault": "0xc9d3e1174983314490B32a7929ac82421E4e5707",
+    "TreasuryRouter": "0xf10909CA840b0C2212a0b15821b0a92Ba47ef769",
+    "LaunchFactory": "0xCCCa3f0daf3D3D6D063287a0FbFd90607Ca8B7F6",
+    "UPVoteTreasury": "0x58386c97B7AaE0738d50730cC59de8191eD1c816"
+  }
+}
