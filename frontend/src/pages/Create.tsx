@@ -16,6 +16,7 @@ import { useWallet } from "@/hooks/useWallet";
 import { useLaunchpad } from "@/lib/launchpadClient";
 import type React from "react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 
 const Create = () => {
   const {
@@ -239,8 +240,11 @@ const Create = () => {
                 </p>
               </div>
             </div>
-            <Button className="bg-accent hover:bg-accent/90 text-accent-foreground font-retro text-base md:text-lg px-6 md:px-8 py-4 md:py-6 rounded-xl shadow-lg w-full md:w-auto">
-              Read Playbook
+            <Button
+              asChild
+              className="bg-accent hover:bg-accent/90 text-accent-foreground font-retro text-base md:text-lg px-6 md:px-8 py-4 md:py-6 rounded-xl shadow-lg w-full md:w-auto"
+            >
+              <Link to="/playbook">Read Playbook</Link>
             </Button>
           </div>
 
