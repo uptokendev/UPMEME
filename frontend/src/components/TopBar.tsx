@@ -14,6 +14,7 @@ import { useLaunchpad } from "@/lib/launchpadClient";
 import type { CampaignInfo, CampaignMetrics } from "@/lib/launchpadClient";
 import { useTokenSearch } from "@/hooks/useTokenSearch";
 import { ethers } from "ethers";
+import { useBnbUsdPrice } from "@/hooks/useBnbUsdPrice";
 
 interface TopBarProps {
   mobileMenuOpen: boolean;
@@ -34,6 +35,8 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
   const wallet = useWallet();
   const [walletModalOpen, setWalletModalOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
+
+  const { price: bnbUsd } = useBnbUsdPrice(true);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState("");
@@ -123,20 +126,44 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
 
   // Build ticker items from campaigns + metrics
   const tickerItems: TickerItem[] = useMemo(() => {
-    const formatPrice = (m: CampaignMetrics | null | undefined) => {
-      if (!m) return "Live";
+    const formatCompactUsd = (n: number) => {
+      if (!Number.isFinite(n)) return "—";
+      const abs = Math.abs(n);
+      const sign = n < 0 ? "-" : "";
+      const v = Math.abs(n);
+      if (abs >= 1_000_000_000) return `${sign}$${(v / 1_000_000_000).toFixed(2)}B`;
+      if (abs >= 1_000_000) return `${sign}$${(v / 1_000_000).toFixed(2)}M`;
+      if (abs >= 1_000) return `${sign}$${(v / 1_000).toFixed(1)}K`;
+      return `${sign}$${v.toFixed(2)}`;
+    };
+
+    const formatCompactBnb = (bnb: number) => {
+      if (!Number.isFinite(bnb)) return "—";
+      const abs = Math.abs(bnb);
+      const pretty = abs >= 1 ? bnb.toFixed(2) : abs >= 0.01 ? bnb.toFixed(4) : abs >= 0.0001 ? bnb.toFixed(6) : bnb.toFixed(8);
+      return `${pretty} BNB`;
+    };
+
+    const formatMarketCap = (m: CampaignMetrics | null | undefined) => {
+      if (!m) return "MC —";
       try {
-        // Assumes currentPrice is 18-decimals BNB price in your metrics
-        const raw = ethers.formatUnits((m as any).currentPrice ?? 0n, 18);
-        const n = Number(raw);
-        if (!Number.isFinite(n)) return `Price ${raw} BNB`;
+        // Match the bonding-curve chart semantics: circulating = net sold tokens.
+        const circulating: bigint = (m as any).sold ?? 0n;
+        const priceWeiPerToken: bigint = (m as any).currentPrice ?? 0n;
+        if (circulating <= 0n || priceWeiPerToken <= 0n) return "MC —";
 
-        const pretty =
-          n >= 1 ? n.toFixed(2) : n >= 0.01 ? n.toFixed(4) : n.toFixed(6);
+        const mcWei = (priceWeiPerToken * circulating) / 10n ** 18n;
+        const mcBnb = Number(ethers.formatEther(mcWei));
+        if (!Number.isFinite(mcBnb) || mcBnb <= 0) return "MC —";
 
-        return `Price ${pretty} BNB`;
+        if (Number.isFinite(bnbUsd ?? NaN) && (bnbUsd ?? 0) > 0) {
+          const mcUsd = mcBnb * (bnbUsd as number);
+          return `MC ${formatCompactUsd(mcUsd)}`;
+        }
+
+        return `MC ${formatCompactBnb(mcBnb)}`;
       } catch {
-        return "Live";
+        return "MC —";
       }
     };
 
@@ -161,12 +188,12 @@ export const TopBar = ({ mobileMenuOpen, setMobileMenuOpen }: TopBarProps) => {
           key: c.campaign,
           symbol: c.symbol,
           logoURI: (c as any).logoURI,
-          subtitle: formatPrice(metrics),
+          subtitle: formatMarketCap(metrics),
           hot: sold > 0n,
           route: `/token/${c.campaign.toLowerCase()}`,
         };
       });
-  }, [tickerCampaigns, tickerMetricsByCampaign]);
+  }, [tickerCampaigns, tickerMetricsByCampaign, bnbUsd]);
 
   // Ensure the scrolling band is always long enough, even if we only have a few campaigns.
   const tickerBaseLoop: TickerItem[] = useMemo(() => {
