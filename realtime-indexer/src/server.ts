@@ -81,52 +81,6 @@ app.get("/health", async (_req, res) => {
   }
 });
 
-// -----------------------------------------------------------
-// Telemetry support (optional)
-// -----------------------------------------------------------
-let lastIndexerRunAt = 0;
-let lastIndexerErrorAt = 0;
-
-async function getLastIndexedBlock(): Promise<number | null> {
-  try {
-    const r = await pool.query(
-      `select cursor, last_indexed_block from public.indexer_state where chain_id=$1 and cursor in ('factory','votes')`,
-      [97]
-    );
-    if (!r.rowCount) return null;
-    // Use the minimum of known cursors as the conservative "indexed" height.
-    let m: number | null = null;
-    for (const row of r.rows) {
-      const v = Number(row.last_indexed_block || 0);
-      if (!Number.isFinite(v) || v <= 0) continue;
-      m = m == null ? v : Math.min(m, v);
-    }
-    return m;
-  } catch {
-    return null;
-  }
-}
-
-async function getRpcHeadBlock(): Promise<number | null> {
-  try {
-    const first = String(ENV.BSC_RPC_HTTP_97 || "").split(",").map((s) => s.trim()).filter(Boolean)[0];
-    if (!first) return null;
-    const body = { jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] };
-    const r = await fetch(first, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    const hex = j?.result;
-    if (typeof hex !== "string" || !hex.startsWith("0x")) return null;
-    return parseInt(hex, 16);
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Ably token auth endpoint
  *
@@ -428,7 +382,10 @@ async function getLastIndexedBlock(chainId: number): Promise<number | null> {
 }
 
 async function getRpcHeadBlock(): Promise<number | null> {
-  const first = String(ENV.BSC_RPC_HTTP_97 || "").split(",")[0]?.trim();
+  const first = String(ENV.BSC_RPC_HTTP_97 || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean)[0];
   if (!first) return null;
   try {
     const body = { jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] };
