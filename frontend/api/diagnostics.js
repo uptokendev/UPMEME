@@ -79,6 +79,106 @@ function normalizeHttpUrl(input) {
   return "https://" + s;
 }
 
+async function checkTelemetry() {
+  const url = String(process.env.TELEMETRY_STATUS_URL || "").trim();
+  if (!url) return { ok: false, skipped: true, error: { message: "Missing TELEMETRY_STATUS_URL" } };
+
+  try {
+    const r = await fetchJson(url);
+    if (!r.ok) {
+      return { ok: false, latencyMs: r.latencyMs, httpStatus: r.status, url, error: { message: "Telemetry status non-200", detail: r.json || r.text } };
+    }
+
+    const svc = r.json?.services?.["realtime-indexer"] || null;
+    if (!svc) {
+      return { ok: false, latencyMs: r.latencyMs, httpStatus: r.status, url, error: { message: "No realtime-indexer in telemetry services yet" } };
+    }
+
+    return {
+      ok: true,
+      latencyMs: r.latencyMs,
+      httpStatus: r.status,
+      url,
+      indexer: {
+        ok: !!svc.ok,
+        rps_1m: svc.rps_1m,
+        errors_1m: svc.errors_1m,
+        head_block: svc.head_block,
+        last_indexed_block: svc.last_indexed_block,
+        lag_blocks: svc.lag_blocks,
+        last_indexer_run_ms_ago: svc.last_indexer_run_ms_ago,
+        mem_mb: svc.mem_mb,
+      },
+    };
+  } catch (e) {
+    return { ok: false, error: safeError(e) };
+  }
+}
+
+async function checkRpcHeadBlock() {
+  const raw = String(process.env.BSC_RPC_HTTP_97 || "").trim();
+  if (!raw) return { ok: false, skipped: true, error: { message: "Missing BSC_RPC_HTTP_97" } };
+
+  const first = raw.split(",").map((s) => s.trim()).filter(Boolean)[0];
+  if (!first) return { ok: false, skipped: true, error: { message: "No valid RPC URL found in BSC_RPC_HTTP_97" } };
+
+  const body = { jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] };
+  const t0 = Date.now();
+  try {
+    const resp = await fetch(first, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    const latencyMs = Date.now() - t0;
+    if (!resp.ok) return { ok: false, latencyMs, httpStatus: resp.status, url: first };
+
+    const j = await resp.json();
+    const hex = j?.result;
+    if (typeof hex !== "string" || !hex.startsWith("0x")) return { ok: false, latencyMs, httpStatus: resp.status, url: first };
+
+    const head = parseInt(hex, 16);
+    return { ok: true, latencyMs, httpStatus: resp.status, url: first, head_block: head };
+  } catch (e) {
+    return { ok: false, latencyMs: Date.now() - t0, url: first, error: safeError(e) };
+  }
+}
+
+async function checkAblyRestAuth() {
+  const key = String(process.env.ABLY_API_KEY || "");
+  if (!key) return { ok: false, skipped: true, error: { message: "Missing ABLY_API_KEY" } };
+
+  const [name, secret] = key.split(":");
+  if (!name || !secret) return { ok: false, error: { message: "ABLY_API_KEY is not in keyName:keySecret format" } };
+
+  const auth = Buffer.from(`${name}:${secret}`).toString("base64");
+  const url = "https://rest.ably.io/time"; // safe endpoint
+  const t0 = Date.now();
+  try {
+    const r = await fetch(url, {
+      method: "GET",
+      headers: { Authorization: `Basic ${auth}` },
+      cache: "no-store",
+    });
+    const latencyMs = Date.now() - t0;
+    const text = await r.text();
+    let json = null;
+    try { json = JSON.parse(text); } catch {}
+
+    // 200 means creds ok; 401 means bad key
+    return {
+      ok: r.ok,
+      latencyMs,
+      httpStatus: r.status,
+      note: r.ok ? "REST auth OK" : "REST auth failed (check ABLY_API_KEY)",
+      body: json || text.slice(0, 200),
+    };
+  } catch (e) {
+    return { ok: false, latencyMs: Date.now() - t0, error: safeError(e) };
+  }
+}
+
 async function pgCheck() {
   const DATABASE_URL = process.env.DATABASE_URL || "";
   if (!DATABASE_URL) {
@@ -510,7 +610,26 @@ th:nth-child(3), td:nth-child(3){ width:56%; }
     </div>
   </div>
 </div>
-      <div class="card">
+
+<div class="card" style="grid-column: 1 / -1;">
+  <h2>Monitoring / Scale signals</h2>
+  <div class="body">
+    <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px;">
+      <span id="mRpc" class="pill"><span class="dot info"></span><span>RPC: —</span></span>
+      <span id="mDb" class="pill"><span class="dot info"></span><span>DB: —</span></span>
+      <span id="mRail" class="pill"><span class="dot info"></span><span>Indexer: —</span></span>
+      <span id="mLag" class="pill"><span class="dot info"></span><span>Lag: —</span></span>
+      <span id="mAbly" class="pill"><span class="dot info"></span><span>Ably: —</span></span>
+    </div>
+
+    <table>
+      <thead><tr><th>Signal</th><th>Status</th><th>Action</th></tr></thead>
+      <tbody id="monitorRows"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
   <h2>Vercel Runtime</h2>
   <div class="body">
     <table>
@@ -591,6 +710,121 @@ th:nth-child(3), td:nth-child(3){ width:56%; }
     const TOKEN = ${JSON.stringify(token)};
     let lastJson = null;
 
+
+    function setPill(id, level, text) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.innerHTML = '<span class="dot ' + level + '"></span><span>' + text + '</span>';
+    }
+
+    function levelFromLatency(ms, warnMs, badMs) {
+      if (!isFinite(ms)) return "info";
+      if (ms >= badMs) return "bad";
+      if (ms >= warnMs) return "warn";
+      return "ok";
+    }
+
+    function setMonitoring(j) {
+      const rowsEl = document.getElementById("monitorRows");
+      if (!rowsEl) return;
+
+      const tel = j?.checks?.telemetry;
+      const rpc = j?.checks?.rpc;
+      const db = j?.checks?.supabase_postgres;
+      const rail = j?.checks?.railway;
+      const ablyRest = j?.checks?.ably_rest;
+
+      // Pills
+      setPill(
+        "mRpc",
+        rpc?.ok ? levelFromLatency(rpc.latencyMs, 800, 2000) : (rpc?.skipped ? "warn" : "bad"),
+        rpc?.ok ? ("RPC: " + rpc.latencyMs + "ms") : (rpc?.skipped ? "RPC: not configured" : "RPC: FAIL")
+      );
+
+      setPill(
+        "mDb",
+        db?.ok ? levelFromLatency(db.latencyMs, 800, 2000) : "bad",
+        db?.ok ? ("DB: " + db.latencyMs + "ms") : "DB: FAIL"
+      );
+
+      setPill(
+        "mRail",
+        rail?.ok ? levelFromLatency(rail.latencyMs, 1200, 3000) : "bad",
+        rail?.ok ? ("Indexer: " + rail.latencyMs + "ms") : "Indexer: FAIL"
+      );
+
+      const lag = tel?.ok ? Number(tel.indexer?.lag_blocks ?? NaN) : NaN;
+      const lagLevel = !isFinite(lag)
+        ? (tel?.ok ? "info" : (tel?.skipped ? "warn" : "bad"))
+        : lag > 1000 ? "bad" : lag > 200 ? "warn" : "ok";
+
+      setPill(
+        "mLag",
+        lagLevel,
+        isFinite(lag) ? ("Lag: " + lag + " blocks") : (tel?.ok ? "Lag: —" : "Lag: n/a")
+      );
+
+      setPill(
+        "mAbly",
+        ablyRest?.ok ? levelFromLatency(ablyRest.latencyMs, 800, 2000) : (ablyRest?.skipped ? "warn" : "bad"),
+        ablyRest?.ok ? ("Ably: " + ablyRest.latencyMs + "ms") : (ablyRest?.skipped ? "Ably: not checked" : "Ably: FAIL")
+      );
+
+      // Rows + actions
+      const rows = [];
+
+      rows.push([
+        "RPC latency / head block",
+        rpc?.ok
+          ? badge(levelFromLatency(rpc.latencyMs, 800, 2000), "OK")
+          : badge(rpc?.skipped ? "warn" : "bad", rpc?.skipped ? "Skipped" : "FAIL"),
+        rpc?.ok
+          ? ("If latency stays high or timeouts: add better RPC(s) / rotate providers; consider rate limits. Head: <span class=\"mono\">" + (rpc.head_block ?? "—") + "</span>")
+          : "Set <span class=\"mono\">BSC_RPC_HTTP_97</span> on Vercel to validate RPC independently of the indexer.",
+      ]);
+
+      rows.push([
+        "Supabase Postgres latency",
+        db?.ok ? badge(levelFromLatency(db.latencyMs, 800, 2000), "OK") : badge("bad", "FAIL"),
+        db?.ok
+          ? "If this trends upward: move to higher Supabase compute tier, reduce query load, add indexes."
+          : "DB failing: check DATABASE_URL / SSL / pooler availability.",
+      ]);
+
+      rows.push([
+        "Indexer health (Railway /health)",
+        rail?.ok ? badge(levelFromLatency(rail.latencyMs, 1200, 3000), "OK") : badge("bad", "FAIL"),
+        rail?.ok
+          ? "If /health latency rises and lag rises: scale Railway CPU/RAM for indexer."
+          : "Indexer unhealthy: inspect Railway logs immediately.",
+      ]);
+
+      rows.push([
+        "Indexer lag (telemetry)",
+        tel?.ok
+          ? badge(lagLevel, lagLevel === "ok" ? "OK" : lagLevel === "warn" ? "Rising" : "High")
+          : badge(tel?.skipped ? "warn" : "bad", tel?.skipped ? "Skipped" : "FAIL"),
+        tel?.ok
+          ? ("If lag steadily increases: CPU bound or RPC throttled. Scale indexer and/or improve RPC. Errors/1m: <span class=\"mono\">" + (tel.indexer?.errors_1m ?? "—") + "</span>, mem: <span class=\"mono\">" + (tel.indexer?.mem_mb ?? "—") + "</span>MB")
+          : "Set TELEMETRY_STATUS_URL on Vercel to surface indexer lag/errors/memory.",
+      ]);
+
+      rows.push([
+        "Ably REST auth",
+        ablyRest?.ok
+          ? badge(levelFromLatency(ablyRest.latencyMs, 800, 2000), "OK")
+          : badge(ablyRest?.skipped ? "warn" : "bad", ablyRest?.skipped ? "Skipped" : "FAIL"),
+        ablyRest?.ok
+          ? "If FAIL: ABLY_API_KEY invalid or blocked. Fix before launch; realtime will break."
+          : "Add/validate ABLY_API_KEY server-side.",
+      ]);
+
+      rowsEl.innerHTML = rows
+        .map(([k, st, d]) => "<tr><td class='k'>" + k + "</td><td>" + st + "</td><td class='muted'>" + d + "</td></tr>")
+        .join("");
+    }
+
+
     function setReadiness(j) {
   const status = j?.status || {};
   const coreReady = !!status.coreReady;
@@ -598,6 +832,7 @@ th:nth-child(3), td:nth-child(3){ width:56%; }
 
   const corePill = document.getElementById("corePill");
   const goLivePill = document.getElementById("goLivePill");
+
 
   if (corePill) corePill.innerHTML = coreReady
     ? '<span class="dot ok"></span><span>Core: READY</span>'
@@ -1040,6 +1275,7 @@ function setAblyRows(j) {
 
       setHeaderMeta(j);
       setReadiness(j);
+      setMonitoring(j);
       setVercelRows(j);
 setDbRows(j);
 setSupabaseRows(j);
@@ -1075,6 +1311,8 @@ setEnvRows(j); // keep the global env table too (optional)
         nodeEnv: process.env.NODE_ENV || "",
       },
       env_presence: {
+        TELEMETRY_STATUS_URL: Boolean(process.env.TELEMETRY_STATUS_URL),
+        BSC_RPC_HTTP_97: Boolean(process.env.BSC_RPC_HTTP_97),
         DATABASE_URL: Boolean(process.env.DATABASE_URL),
         PG_CA_CERT_B64: Boolean(process.env.PG_CA_CERT_B64),
         PG_CA_CERT: Boolean(process.env.PG_CA_CERT),
@@ -1097,6 +1335,10 @@ setEnvRows(j); // keep the global env table too (optional)
       checks: {},
       recommendations: [],
     };
+
+    out.checks.telemetry = await checkTelemetry();
+out.checks.rpc = await checkRpcHeadBlock();
+out.checks.ably_rest = await checkAblyRestAuth();
 
     // DATABASE_URL should point at Supabase Postgres (single source of truth)
     out.checks.supabase_postgres = await pgCheck();
